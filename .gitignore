@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+shared/temp/
+shared/registry.db
+domains_index/
+*.log
+.pytest_cache/

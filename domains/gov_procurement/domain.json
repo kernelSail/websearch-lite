@@ -1,0 +1,29 @@
+{
+  "id": "gov_procurement",
+  "label": "政府采购公告",
+  "schema_version": "procurement_v1",
+  "role": "authoritative",
+  "authority_scope": ["procurement_award", "procurement_notice"],
+  "trust_weight": 1.0,
+  "update_frequency": "daily",
+  "source": {
+    "id": "ccgp",
+    "name": "中国政府采购网",
+    "base_url": "https://www.ccgp.gov.cn/",
+    "role": "authoritative"
+  },
+  "robots_respect": true,
+  "rate_limit_rps": 1.0,
+  "max_concurrency": 1,
+  "adapter": "ccgp",
+  "discovery": {
+    "seed_urls": ["http://www.ccgp.gov.cn/cggg/dfgg/gkzb/", "http://www.ccgp.gov.cn/cggg/dfgg/zbgg/"],
+    "sitemap": null,
+    "rss": null,
+    "list_page_pattern": true
+  },
+  "content_selector": "div.vF_detail_content, div.content, div.TRS_Editor",
+  "fallback_extractor": "builtin",
+  "classify_schema": "procurement_v1",
+  "storage_path": "D:/study/deepseek-work/websearch-lite/domains/gov_procurement"
+}

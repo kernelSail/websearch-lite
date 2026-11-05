@@ -1,0 +1,29 @@
+{
+  "id": "listed_announcement",
+  "label": "上市公司公告",
+  "schema_version": "announcement_v1",
+  "role": "authoritative",
+  "authority_scope": ["listed_announcement", "financial_report"],
+  "trust_weight": 1.0,
+  "update_frequency": "daily",
+  "source": {
+    "id": "cninfo",
+    "name": "巨潮资讯网",
+    "base_url": "https://www.cninfo.com.cn/",
+    "role": "authoritative"
+  },
+  "robots_respect": true,
+  "rate_limit_rps": 1.0,
+  "max_concurrency": 1,
+  "adapter": "cninfo",
+  "discovery": {
+    "seed_urls": ["http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search"],
+    "sitemap": null,
+    "rss": null,
+    "api_page": "http://www.cninfo.com.cn/new/hisAnnouncement/query"
+  },
+  "content_selector": "div.announcement-detail, div.detail-content, div.content",
+  "fallback_extractor": "builtin",
+  "classify_schema": "announcement_v1",
+  "storage_path": "D:/study/deepseek-work/websearch-lite/domains/listed_announcement"
+}

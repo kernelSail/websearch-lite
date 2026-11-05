@@ -1,0 +1,5 @@
+# 依赖
+
+Python >= 3.11
+tantivy>=0.27
+jieba>=0.42

@@ -1,0 +1,26 @@
+{
+  "storage_root": "D:/study/deepseek-work/websearch-lite/shared",
+  "temp_root": "D:/study/deepseek-work/websearch-lite/shared/temp",
+  "database": "D:/study/deepseek-work/websearch-lite/shared/registry.db",
+  "user_agent": "websearch-lite/0.1 (personal self-use; low-rate)",
+  "request_timeout_s": 20,
+  "max_retries": 2,
+  "retry_backoff_s": 2,
+  "p0": {
+    "domains": ["gov_procurement", "listed_announcement"],
+    "max_pages_per_source": 30,
+    "allow_short_term_text_cache": true,
+    "delete_temp_after_ingest": true,
+    "max_evidence_chars": 400,
+    "max_snippet_chars": 600
+  },
+  "classifier": {
+    "mode": "rule",
+    "local_endpoint": "http://127.0.0.1:11434/v1",
+    "model": "qwen2.5:7b"
+  },
+  "consistency": {
+    "mismatch_warn_threshold": 1,
+    "rebuild_trigger_percent": 1.0
+  }
+}
