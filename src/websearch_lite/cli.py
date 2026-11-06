@@ -12,6 +12,7 @@ from websearch_lite.paths import find_project_root
 ROOT = find_project_root()
 
 from websearch_lite.app.crawl import crawl, load_config, load_domains, make_store, probe, register_all
+from websearch_lite.app.daemon import run_daemon
 from websearch_lite.app.recovery import Recovery
 from websearch_lite.app.scheduler import Scheduler
 from websearch_lite.eval.p0_eval import run_eval
@@ -34,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     p_crawl = sub.add_parser("crawl", help="执行一次定向采集")
     p_crawl.add_argument("--domain", help="只跑指定域")
     p_crawl.add_argument("--max-pages", type=int)
+    p_crawl.add_argument("--all", action="store_true", help="忽略 next_run_at，抓全部 pending（默认按增量到期）")
+    p_run = sub.add_parser("run", help="常驻调度：按周期抓到期任务，可 --once 只跑一轮")
+    p_run.add_argument("--interval", type=int, default=900, help="两轮间隔秒数（默认 900）")
+    p_run.add_argument("--once", action="store_true")
+    p_run.add_argument("--max-pages", type=int)
     p_search = sub.add_parser("search", help="检索本地索引")
     p_search.add_argument("query")
     p_search.add_argument("--domain")
@@ -70,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     p_rec = sub.add_parser("recover", help="P5：崩溃恢复（重置超时 running、有限重试、消费 pipeline 任务）")
     p_rec.add_argument("--dry-run", action="store_true")
     sub.add_parser("migrate", help="P5：应用未执行的迁移")
+    sub.add_parser("classifier-probe", help="探测本地模型分类器可用性（不可用则规则降级）")
     p_backup = sub.add_parser("backup", help="P5：备份数据库与配置")
     p_backup.add_argument("--dir")
     p_verify_backup = sub.add_parser("verify-backup", help="P5：校验备份可恢复")
@@ -96,9 +103,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(r["verdict"] == "PASS" for r in rows) else 1
 
     if args.command == "crawl":
-        result = crawl(config, domains, store, max_pages=args.max_pages)
+        result = crawl(config, domains, store, max_pages=args.max_pages, due_only=not args.all)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
+
+    if args.command == "run":
+        return run_daemon(config, domains, store, interval=args.interval,
+                          once=args.once, max_pages=args.max_pages)
 
     if args.command == "search":
         started = time.perf_counter()
@@ -129,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "extract":
         run_id = start_run(store, config, code_version="p2.1")
-        extractors = {d: FactExtractor(store, d) for d in domains}
+        extractors = {d: FactExtractor(store, d, config=config) for d in domains}
         totals = {"versions": 0, "created": 0, "failed": 0}
         for row in store.all_document_versions():
             if args.domain and row["domain_id"] != args.domain:
@@ -232,6 +243,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "migrate":
         print(json.dumps(migration.migrate(store), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "classifier-probe":
+        output = {}
+        for domain_id in domains:
+            extractor = FactExtractor(store, domain_id, config=config)
+            output[domain_id] = {
+                "configured_mode": config.get("classifier", {}).get("mode", "rule"),
+                "active": "local-llm" if extractor.llm else "rule",
+                "probe": extractor.llm_probe,
+            }
+        print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "backup":

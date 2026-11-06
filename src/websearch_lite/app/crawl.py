@@ -60,11 +60,15 @@ def probe(config: dict, domains: dict[str, dict]) -> list[dict]:
     return results
 
 
-def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: int | None = None) -> dict:
+def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: int | None = None,
+          due_only: bool = True) -> dict:
+    """定向采集。due_only=True 时只取 next_run_at 已到期的任务（P5 增量语义）。"""
     run_id = start_run(store, config)
     fetcher = Fetcher(config)
     limit = max_pages or int(config["p0"]["max_pages_per_source"])
     summary: dict[str, Any] = {"run_id": run_id, "domains": {}}
+    from .scheduler import Scheduler
+    scheduler = Scheduler(store, config)
 
     for domain_id, cfg in domains.items():
         src = cfg["source"]
@@ -91,10 +95,15 @@ def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: in
                 if store.enqueue_url(source_id, url, canonicalize_url(url)):
                     discovered += 1
 
-        # 2) 逐页采集
-        tasks = store.next_crawl_tasks(source_id, limit)
+        # 2) 逐页采集：开启增量时只认领已到期任务，未到期保持 pending
+        if due_only:
+            due_ids = [t["crawl_task_id"] for t in scheduler.due_tasks(domain_id)]
+            tasks = store.claim_crawl_tasks(source_id, due_ids, limit)
+        else:
+            tasks = store.next_crawl_tasks(source_id, limit)
         counters = {"discovered": discovered, "fetched": 0, "ingested": 0,
-                    "reused": 0, "failed": 0, "skipped_304": 0}
+                    "reused": 0, "failed": 0, "skipped_304": 0,
+                    "deferred": max(0, len(due_ids) - len(tasks)) if due_only else 0}
         temp_root = Path(config["temp_root"]) / run_id
         temp_root.mkdir(parents=True, exist_ok=True)
 
@@ -170,7 +179,7 @@ def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: in
                     if config.get("p2", {}).get("extract_on_ingest", True):
                         try:
                             from ..facts.extractor import FactExtractor
-                            extractor = FactExtractor(store, domain_id)
+                            extractor = FactExtractor(store, domain_id, config=config)
                             extract_meta = dict(metadata or {})
                             extract_meta["source_id"] = source_id
                             if api_meta:

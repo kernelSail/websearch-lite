@@ -1,0 +1,66 @@
+{
+  "version": "p4v2",
+  "note": "文档级相关性标注（基于真实入库文档）。relevant_doc_ids 为空表示该查询应无命中。",
+  "queries": [
+    {
+      "id": "p4_01",
+      "query": "中标公告",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_06bc5dae123bb9f6",
+        "idx_cd90fee9c14a1772",
+        "idx_3f2f91ff21ad23eb"
+      ]
+    },
+    {
+      "id": "p4_02",
+      "query": "医院",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_06bc5dae123bb9f6",
+        "idx_32c2b16918422d79",
+        "idx_72daa398cadf006c",
+        "idx_cd90fee9c14a1772"
+      ]
+    },
+    {
+      "id": "p4_03",
+      "query": "可转换公司债券",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_2f03e990c6c4dbcf",
+        "idx_70eb55126621dc9a",
+        "idx_82e3e787357274c0",
+        "idx_bdc7c32d195e737d"
+      ]
+    },
+    {
+      "id": "p4_04",
+      "query": "招标公告",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_32c2b16918422d79",
+        "idx_53f38761ec463cb6",
+        "idx_6ebb82aebe985359",
+        "idx_72daa398cadf006c"
+      ]
+    },
+    {
+      "id": "p4_05",
+      "query": "天山电子",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_2f03e990c6c4dbcf",
+        "idx_70eb55126621dc9a",
+        "idx_82e3e787357274c0",
+        "idx_bdc7c32d195e737d"
+      ]
+    },
+    {
+      "id": "p4_06",
+      "query": "zzzz-不存在的关键词-xyz",
+      "k": 5,
+      "relevant_doc_ids": []
+    }
+  ]
+}

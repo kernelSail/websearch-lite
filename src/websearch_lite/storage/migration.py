@@ -94,29 +94,65 @@ def restore(store, backup_dir: str | Path, *, dry_run: bool = True) -> dict:
         return {"restored": False, "check": check}
     if dry_run:
         return {"restored": False, "dry_run": True, "check": check}
+    # 覆盖前自动备份当前库，避免误恢复不可逆
+    safety = backup(store, backup_dir=None)
     cfg = json_load_config()
-    target = Path(cfg["database"])
+    target = Path(store.path)
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(backup_dir) / "registry.db", target)
-    return {"restored": True, "target": str(target), "check": check}
+    return {"restored": True, "target": str(target), "check": check,
+            "pre_restore_backup": safety["backup_dir"]}
+
+
+def _probe_io(path: Path) -> dict:
+    """移动盘 I/O 探活：可创建/写入/删除临时文件，且数据库可读写。"""
+    import os
+    info = {"path": str(path), "exists": path.exists(), "writable": False, "error": None}
+    if not path.exists():
+        info["error"] = "MISSING"
+        return info
+    probe = path / ".ws_lite_io_probe"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        if probe.read_text(encoding="utf-8") != "ok":
+            raise OSError("readback mismatch")
+        info["writable"] = True
+    except OSError as error:
+        info["error"] = f"{type(error).__name__}:{error}"
+    finally:
+        try:
+            if probe.exists():
+                probe.unlink()
+        except OSError:
+            pass
+    return info
+
 
 def check_storage_paths(store) -> dict:
-    """移动盘路径识别：域 storage_path 不可用时明确报告，不静默返回空。"""
+    """移动盘路径识别：域 storage_path 不可用/不可写时明确报告，不静默返回空。"""
     cfg = json_load_config()
     paths = []
     with __import__("contextlib").closing(store._connect()) as db:
         for row in db.execute("SELECT domain_id,storage_path,enabled FROM domains"):
             path = Path(row[1]) if row[1] else None
+            io = _probe_io(path) if path else {"exists": False, "writable": False, "error": "NO_PATH"}
             paths.append({
                 "domain_id": row[0], "path": row[1] or "",
                 "exists": bool(path and path.exists()),
+                "writable": io["writable"],
+                "io_error": io["error"],
                 "enabled": bool(row[2]),
             })
+    temp_root = Path(cfg.get("temp_root", "")) if cfg.get("temp_root") else None
+    db_path = Path(store.path)
     return {
         "temp_root": cfg.get("temp_root", ""),
-        "temp_exists": Path(cfg.get("temp_root", "")).exists(),
-        "database": cfg.get("database", ""),
-        "database_exists": Path(cfg.get("database", "")).exists(),
+        "temp_exists": bool(temp_root and temp_root.exists()),
+        "temp_writable": _probe_io(temp_root)["writable"] if temp_root else False,
+        "database": str(db_path),
+        "database_exists": db_path.exists(),
+        "database_writable": _probe_io(db_path.parent)["writable"] if db_path.parent.exists() else False,
         "domains": paths,
         "offline_domains": [p["domain_id"] for p in paths if p["enabled"] and not p["exists"]],
+        "readonly_domains": [p["domain_id"] for p in paths if p["enabled"] and p["exists"] and not p["writable"]],
     }

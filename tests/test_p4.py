@@ -77,9 +77,10 @@ def test_eval4_metrics_bounded():
     tmp, store = _store()
     try:
         report = evaluate(QueryCoordinator(store, {"search_engine": "fts5"}))
-        assert report["total"] == 5
-        assert 0.0 <= report["ndcg_at_k"] <= 1.0
-        assert 0.0 <= report["recall_at_k"] <= 1.0
+        assert report["total"] >= 5
+        for key in ("ndcg_at_k", "recall_at_k", "precision_at_k"):
+            value = report[key]
+            assert value is None or 0.0 <= value <= 1.0, f"{key}={value}"
         assert 0.0 <= report["citation_accuracy"] <= 1.0
     finally:
         tmp.cleanup()

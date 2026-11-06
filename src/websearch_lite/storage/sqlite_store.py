@@ -87,6 +87,24 @@ class Store:
             db.commit()
             return [dict(r) for r in rows]
 
+    def claim_crawl_tasks(self, source_id: str, due_ids: list[str], limit: int) -> list[dict]:
+        """只认领 next_run_at 已到期的任务（P5 增量语义），未到期的保持 pending。"""
+        if not due_ids:
+            return []
+        with closing(self._connect()) as db:
+            placeholders = ",".join("?" for _ in due_ids)
+            rows = db.execute(
+                f"""SELECT * FROM crawl_tasks WHERE source_id=? AND task_status IN ('pending','retry_wait')
+                    AND crawl_task_id IN ({placeholders})
+                    ORDER BY priority DESC, discovered_at ASC LIMIT ?""",
+                (source_id, *due_ids, limit),
+            ).fetchall()
+            for row in rows:
+                db.execute("UPDATE crawl_tasks SET task_status='running', updated_at=? WHERE crawl_task_id=?",
+                           (now_iso(), row["crawl_task_id"]))
+            db.commit()
+            return [dict(r) for r in rows]
+
     def finish_crawl(self, task_id: str, status: str, *, http_status: int | None = None,
                      etag: str | None = None, last_modified: str | None = None,
                      error: str | None = None) -> None:
@@ -234,14 +252,28 @@ class Store:
                     ).fetchall()
                 except sqlite3.OperationalError:
                     rows = []
-            # 2 字或 FTS 未命中：LIKE 兜底；命中时也补一次 LIKE 结果并去重
-            like = "%" + trimmed.replace("%", "") + "%"
+            # LIKE 兜底：整词优先；若无命中，用 2-gram OR 扩大召回（trigram 无法覆盖
+            # 「中标公告」vs「中标（成交）结果公告」这类不连续写法），再由上层按覆盖度重排。
             like_clause = " AND domain_id=?" if domain_id else ""
+            like = "%" + trimmed.replace("%", "") + "%"
             like_rows = db.execute(
                 """SELECT * FROM documents_index WHERE (title LIKE ? OR snippet LIKE ?)""" + like_clause +
                 " ORDER BY fetched_at DESC LIMIT ?",
                 [like, like, *params, limit],
             ).fetchall()
+            if not like_rows and len(trimmed) >= 2:
+                compact = "".join(trimmed.split())
+                bigrams = list(dict.fromkeys(compact[i:i + 2] for i in range(len(compact) - 1)))[:8]
+                if bigrams:
+                    condition = " OR ".join("(title LIKE ? OR snippet LIKE ?)" for _ in bigrams)
+                    like_args: list[Any] = []
+                    for gram in bigrams:
+                        like_args.extend([f"%{gram}%", f"%{gram}%"])
+                    like_rows = db.execute(
+                        """SELECT * FROM documents_index WHERE (""" + condition + ")""" + like_clause +
+                        " ORDER BY fetched_at DESC LIMIT ?",
+                        [*like_args, *params, limit * 3],
+                    ).fetchall()
             merged = {r["doc_id"]: dict(r) for r in [*rows, *like_rows]}
             return list(merged.values())[:limit]
 

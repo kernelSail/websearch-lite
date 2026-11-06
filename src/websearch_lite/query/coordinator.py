@@ -35,30 +35,33 @@ class QueryCoordinator:
     def search(self, query: str, *, filters: dict | None = None, limit: int = 20) -> dict:
         filters = filters or {}
         domains = self.route(query, filters)
+        # 多召回：原始查询 + 去尾缀变体，缓解「中标公告」只匹配「招标公告」的片段偏差
+        variants = [query] + [v for v in [self._strip_generic_suffix(query)] if v and v != query]
         raw: list[dict] = []
         for domain_id in domains:
-            try:
-                hits = self.port.search(
-                    query,
-                    filters={**filters, "domain_id": domain_id},
-                    limit=limit,
-                )
-                for rank, hit in enumerate(hits):
-                    item = dict(hit)
-                    item["domain_id"] = domain_id
-                    # 域内归一化：不同域 BM25 原始分不可直接比较（V1.1 §12.3）
-                    item["rank_normalized"] = round(1.0 - rank / max(1, len(hits)), 4)
-                    item["raw_score"] = float(item.get("score") or item.get("relevance") or 0.0)
-                    raw.append(item)
-            except Exception:
-                continue
+            for variant in variants:
+                try:
+                    hits = self.port.search(
+                        variant,
+                        filters={**filters, "domain_id": domain_id},
+                        limit=limit,
+                    )
+                    for rank, hit in enumerate(hits):
+                        item = dict(hit)
+                        item["domain_id"] = domain_id
+                        # 域内归一化：不同域 BM25 原始分不可直接比较（V1.1 §12.3）
+                        item["rank_normalized"] = round(1.0 - rank / max(1, len(hits)), 4)
+                        item["raw_score"] = float(item.get("score") or item.get("relevance") or 0.0)
+                        raw.append(item)
+                except Exception:
+                    continue
 
         # 结构化过滤
         raw = self._apply_filters(raw, filters)
         # 全局去重（URL + 内容近似）
         raw = self._dedup(raw)
-        # 统一重排：归一化分 + 权威权重 + 新近度
-        raw = self._rerank(raw, filters)
+        # 统一重排：归一化分 + 查询词覆盖 + 权威权重 + 新近度
+        raw = self._rerank(raw, filters, query)
         # 事实/证据约束
         self._attach_facts(raw, filters)
 
@@ -102,7 +105,7 @@ class QueryCoordinator:
             out.append(row)
         return out
 
-    def _rerank(self, rows: list[dict], filters: dict) -> list[dict]:
+    def _rerank(self, rows: list[dict], filters: dict, query: str = "") -> list[dict]:
         weights = defaultdict(lambda: 1.0)
         try:
             with __import__("contextlib").closing(self.store._connect()) as db:
@@ -116,13 +119,37 @@ class QueryCoordinator:
             fetched = str(row.get("fetched_at") or "")
             if fetched:
                 recency = min(1.0, len(fetched) / 40.0)  # 有时间戳的轻微加分
+            coverage = self._term_coverage(query, row)
+            row["term_coverage"] = coverage
             row["final_score"] = round(
-                0.6 * float(row.get("rank_normalized") or 0.0)
-                + 0.25 * min(1.0, authority)
-                + 0.15 * recency,
+                0.45 * float(row.get("rank_normalized") or 0.0)
+                + 0.30 * coverage
+                + 0.15 * min(1.0, authority)
+                + 0.10 * recency,
                 4,
             )
         return sorted(rows, key=lambda r: r["final_score"], reverse=True)
+
+    @staticmethod
+    def _strip_generic_suffix(query: str) -> str:
+        """去掉「公告/项目/结果」等泛化尾缀，取核心词做补充召回。"""
+        text = query.strip()
+        for suffix in ("公告", "结果公告", "项目", "通知", "公示"):
+            if text.endswith(suffix) and len(text) - len(suffix) >= 2:
+                return text[: -len(suffix)].strip()
+        return ""
+
+    @staticmethod
+    def _term_coverage(query: str, row: dict) -> float:
+        text = query.strip()
+        if not text:
+            return 0.0
+        compact = "".join(text.split())
+        grams = [compact[i:i + 2] for i in range(max(1, len(compact) - 1))]
+        grams = [g for g in dict.fromkeys(grams) if len(g) == 2] or [compact]
+        haystack = f"{row.get('title') or ''} {row.get('snippet') or ''}"
+        hit = sum(1 for g in grams if g in haystack)
+        return round(hit / len(grams), 4)
 
     def _attach_facts(self, rows: list[dict], filters: dict) -> None:
         status_filter = filters.get("verification_status")

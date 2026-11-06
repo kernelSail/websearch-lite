@@ -63,16 +63,47 @@ class RuleClassifier:
 
 
 class FactExtractor:
-    def __init__(self, store, domain_id: str, schema: dict | None = None) -> None:
+    def __init__(self, store, domain_id: str, schema: dict | None = None,
+                 config: dict | None = None) -> None:
         self.store = store
         self.domain_id = domain_id
         self.schema = schema or load_schema(domain_id)
-        self.classifier = RuleClassifier(self.schema)
+        self.rule = RuleClassifier(self.schema)
+        self.config = config or {}
+        self.classifier = self.rule
+        # 模型分类器可用性探测：不可用则确定性回退到规则（决断 4）
+        self.llm = None
+        self.llm_probe: dict = {"available": False, "reason": "not_requested"}
+        if str(self.config.get("classifier", {}).get("mode", "rule")) == "local-llm":
+            from .llm_classifier import LocalLLMClassifier
+            candidate = LocalLLMClassifier(self.schema, self.config)
+            probe = candidate.probe()
+            self.llm_probe = probe
+            if probe.get("available"):
+                self.llm = candidate
+                self.classifier = candidate
         self.resolver = EntityResolver(store, self.schema)
+
+    def _classify(self, text: str, metadata: dict) -> dict:
+        """模型优先，失败或空结果时补规则；两者均受同一封闭 Schema 约束。"""
+        if self.llm is not None:
+            try:
+                llm_result = self.llm.classify(text, metadata=metadata)
+                if llm_result["fields"]:
+                    rule_result = self.rule.classify(text, metadata=metadata)
+                    for predicate, field in rule_result["fields"].items():
+                        llm_result["fields"].setdefault(predicate, field)
+                    llm_result["classifier"] = "local-llm"
+                    return llm_result
+            except Exception:
+                pass
+        result = self.rule.classify(text, metadata=metadata)
+        result["classifier"] = "rule"
+        return result
 
     def extract_document(self, *, document_version_id: str, text: str,
                          metadata: dict | None = None, run_id: str | None = None) -> dict:
-        result = self.classifier.classify(text, metadata=metadata or {})
+        result = self._classify(text, metadata or {})
         fields = result["fields"]
         now = now_iso()
         with __import__("contextlib").closing(self.store._connect()) as probe_db:
@@ -133,7 +164,7 @@ class FactExtractor:
                     (fv_id, fact_id, version_no, dumps(value_json), field["normalized"],
                      field["unit"], field["currency"], (metadata or {}).get("published_at"),
                      (metadata or {}).get("occurred_at"), None, None,
-                     None, None, "rule-classifier-v1", self.schema["schema_id"],
+                     None, None, result.get("classifier", "rule") + "-v1", self.schema["schema_id"],
                      resolution["confidence"], run_id, now),
                 )
                 ev = field["evidence"]
