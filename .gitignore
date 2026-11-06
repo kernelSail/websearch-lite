@@ -9,3 +9,8 @@ domains_index/
 backups/
 *.log
 .pytest_cache/
+
+# 前端
+web/node_modules/
+web/dist/
+.shots/

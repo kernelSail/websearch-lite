@@ -21,18 +21,22 @@ class TantivySearchPort:
 
     def _schema(self):
         builder = tantivy.SchemaBuilder()
-        builder.add_text_field("title", stored=True, tokenizer_name="default")
-        builder.add_text_field("snippet", stored=True, tokenizer_name="default")
-        builder.add_text_field("entities", stored=True, tokenizer_name="default")
-        builder.add_text_field("url", stored=True)
-        builder.add_text_field("canonical_url", stored=True)
+        # 分词字段（仅用于检索，不存储）：写入的是 jieba 预分词后的空格串
+        builder.add_text_field("title", stored=False, tokenizer_name="default")
+        builder.add_text_field("snippet", stored=False, tokenizer_name="default")
+        builder.add_text_field("entities", stored=False, tokenizer_name="default")
+        # 原文存储字段（仅用于回显，不分词）：避免把分词结果当标题展示给用户
+        builder.add_text_field("title_text", stored=True, tokenizer_name="raw")
+        builder.add_text_field("snippet_text", stored=True, tokenizer_name="raw")
+        builder.add_text_field("url", stored=True, tokenizer_name="raw")
+        builder.add_text_field("canonical_url", stored=True, tokenizer_name="raw")
         builder.add_text_field("domain_id", stored=True, tokenizer_name="raw")
         builder.add_text_field("source_id", stored=True, tokenizer_name="raw")
         builder.add_text_field("doc_id", stored=True, tokenizer_name="raw")
         builder.add_text_field("document_id", stored=True, tokenizer_name="raw")
         builder.add_text_field("document_version_id", stored=True, tokenizer_name="raw")
-        builder.add_text_field("published_at", stored=True)
-        builder.add_text_field("fetched_at", stored=True)
+        builder.add_text_field("published_at", stored=True, tokenizer_name="raw")
+        builder.add_text_field("fetched_at", stored=True, tokenizer_name="raw")
         return builder.build()
 
     def _domain_index(self, domain_id: str) -> dict[str, Any]:
@@ -69,12 +73,16 @@ class TantivySearchPort:
             entry["writer"] = None
 
     def _document(self, doc: dict) -> tantivy.Document:
+        title = doc.get("title") or ""
+        snippet = doc.get("snippet") or ""
         return tantivy.Document(
             doc_id=doc["doc_id"],
             document_id=doc.get("document_id", doc["doc_id"]),
-            title=tokenize(doc.get("title") or ""),
-            snippet=tokenize(doc.get("snippet") or ""),
+            title=tokenize(title),
+            snippet=tokenize(snippet),
             entities=tokenize(doc.get("entities") or ""),
+            title_text=title,
+            snippet_text=snippet,
             url=doc.get("url") or "",
             canonical_url=doc.get("canonical_url") or "",
             domain_id=doc.get("domain_id") or "",
@@ -137,6 +145,9 @@ class TantivySearchPort:
                             for key, value in raw.items()}
                     if item.get("doc_id") in seen_ids:
                         continue
+                    # 回显用原文，检索用分词字段
+                    item["title"] = item.pop("title_text", "") or item.get("title", "")
+                    item["snippet"] = item.pop("snippet_text", "") or item.get("snippet", "")
                     item["score"] = float(score)
                     item["domain_id"] = domain_id
                     hits.append(item)
