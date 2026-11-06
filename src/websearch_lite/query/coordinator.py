@@ -37,14 +37,17 @@ class QueryCoordinator:
             return [filters["domain_id"]]
         with __import__("contextlib").closing(self.store._connect()) as db:
             domains = [r[0] for r in db.execute("SELECT domain_id FROM domains WHERE enabled=1")]
-        # 轻量关键词路由：命中站点特征词则优先对应域，否则全域
+        # 关键词只用于「排序优先」，不做硬过滤：同一查询可能同时命中不同域
+        # （如「中标公告」在政府采购域是结果公告、在上市公司域是重大合同中标公告）。
         text = query.lower()
         hints = {
             "gov_procurement": ("采购", "中标", "招标", "成交", "预算", "采购人"),
             "listed_announcement": ("公告", "证券", "年报", "报告", "上市公司", "披露", "股份"),
         }
-        routed = [d for d, keywords in hints.items() if d in domains and any(k in text for k in keywords)]
-        return routed or domains
+        priority = [d for d, keywords in hints.items()
+                    if d in domains and any(k in text for k in keywords)]
+        rest = [d for d in domains if d not in priority]
+        return priority + rest
 
     # ---------- 检索 ----------
     def search(self, query: str, *, filters: dict | None = None, limit: int = 20) -> dict:

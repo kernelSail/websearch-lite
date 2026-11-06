@@ -7,21 +7,7 @@ from typing import Any
 
 import tantivy
 
-try:
-    import jieba
-except ImportError:  # 中文分词不可用时退化为字符 3-gram
-    jieba = None
-
-
-def tokenize(text: str) -> str:
-    """中文分词：jieba 优先，缺失时字符 3-gram 兜底。"""
-    if not text:
-        return ""
-    if jieba is not None:
-        tokens = [t for t in jieba.cut(text) if t.strip()]
-        return " ".join(tokens)
-    compact = "".join(text.split())
-    return " ".join(compact[i:i + 3] for i in range(len(compact) - 2))
+from .tokenizer import query_tokens, tokenize  # noqa: F401  （统一分词入口）
 
 
 class TantivySearchPort:
@@ -119,11 +105,14 @@ class TantivySearchPort:
     def search(self, query: str, *, filters: dict | None = None, limit: int = 20) -> list[dict]:
         filters = filters or {}
         domain_ids = [filters["domain_id"]] if filters.get("domain_id") else list(self.domains)
-        tokens = [t for t in tokenize(query).split() if t]
+        tokens = query_tokens(query)
         if not tokens:
-            tokens = [query]
+            return []  # 全部是停用词/标点：没有可检索内容，返回空而不是匹配所有文档
         # AND 优先保证精确（「中标公告」要求同时含 中标+公告），召回不足时退化为 OR。
-        strategies = [" AND ".join(tokens), " OR ".join(tokens)]
+        # OR 仅在有效 token >= 2 时启用；单个 token 走 OR 等价于全表扫描噪声。
+        strategies = [" AND ".join(tokens)]
+        if len(tokens) >= 2:
+            strategies.append(" OR ".join(tokens))
         hits: list[dict] = []
         for domain_id in domain_ids:
             entry = self._domain_index(domain_id)
@@ -151,8 +140,8 @@ class TantivySearchPort:
                     item["score"] = float(score)
                     item["domain_id"] = domain_id
                     hits.append(item)
-                # AND 已有结果即停止，避免 OR 引入「招标公告」这类片段噪声
-                if len(found) >= 1:
+                # AND 已凑够本域所需条数才停止；不足时继续用 OR 补召回
+                if len([h for h in hits if h.get("domain_id") == domain_id]) >= limit:
                     break
         # 域内归一化 rank，避免直接比较不同域的原始 BM25 分（V1.1 §12.3）
         by_domain: dict[str, list[dict]] = {}
