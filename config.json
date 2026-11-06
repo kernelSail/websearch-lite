@@ -22,6 +22,10 @@
   "p2": {
     "extract_on_ingest": true
   },
+  "verification": {
+    "stale_days": 180,
+    "repost_simhash_threshold": 6
+  },
   "consistency": {
     "mismatch_warn_threshold": 1,
     "rebuild_trigger_percent": 1.0

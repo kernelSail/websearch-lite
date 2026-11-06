@@ -14,8 +14,10 @@ ROOT = find_project_root()
 from websearch_lite.app.crawl import crawl, load_config, load_domains, make_store, probe, register_all
 from websearch_lite.eval.p0_eval import run_eval
 from websearch_lite.eval.p2_eval import evaluate as evaluate_p2
+from websearch_lite.eval.p3_eval import evaluate as evaluate_p3
 from websearch_lite.facts.extractor import FactExtractor
 from websearch_lite.pipeline.runs import finish_run, start_run
+from websearch_lite.verification.verifier import Verifier
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,6 +42,15 @@ def main(argv: list[str] | None = None) -> int:
     p_facts = sub.add_parser("facts", help="查看已抽取的结构化事实")
     p_facts.add_argument("--domain")
     p_facts.add_argument("--limit", type=int, default=50)
+    p_verify = sub.add_parser("verify", help="P3：批量事实验证")
+    p_verify.add_argument("--domain")
+    sub.add_parser("eval3", help="P3：验证规则层评测")
+    p_conf = sub.add_parser("conflicts", help="P3：查看冲突快照")
+    p_conf.add_argument("--resolve")
+    p_conf.add_argument("--winner")
+    p_conf.add_argument("--reason", default="")
+    p_rev = sub.add_parser("review", help="P3：查看人工复核队列")
+    p_rev.add_argument("--limit", type=int, default=50)
 
     args = parser.parse_args(argv)
     config = load_config()
@@ -118,6 +129,31 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "facts":
         print(json.dumps(store.list_facts(domain_id=args.domain, limit=args.limit),
                          ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "verify":
+        verifier = Verifier(store, config)
+        print(json.dumps(verifier.verify_all(domain_id=args.domain), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "eval3":
+        print(json.dumps(evaluate_p3(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "conflicts":
+        if args.resolve:
+            if not args.winner:
+                print("--winner required when --resolve is used", file=sys.stderr)
+                return 1
+            verifier = Verifier(store, config)
+            print(json.dumps(verifier.resolve_conflict(args.resolve, args.winner, reason=args.reason),
+                             ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(store.list_conflicts(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "review":
+        print(json.dumps(store.list_reviews(limit=args.limit), ensure_ascii=False, indent=2))
         return 0
 
     return 1

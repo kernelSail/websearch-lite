@@ -303,6 +303,26 @@ class Store:
                 " ORDER BY fv.created_at DESC LIMIT ?", [*params, limit]
             ).fetchall()]
 
+    def list_conflicts(self) -> list[dict]:
+        with closing(self._connect()) as db:
+            return [dict(r) for r in db.execute("SELECT * FROM fact_conflicts ORDER BY created_at DESC")]
+
+    def list_reviews(self, limit: int = 50) -> list[dict]:
+        with closing(self._connect()) as db:
+            return [dict(r) for r in db.execute(
+                "SELECT * FROM review_tasks WHERE status='pending' ORDER BY priority DESC, created_at ASC LIMIT ?",
+                (limit,),
+            ).fetchall()]
+
+    def source_relationships_count(self) -> int:
+        with closing(self._connect()) as db:
+            return db.execute("SELECT COUNT(*) FROM source_relationships").fetchone()[0]
+
+    def verification_counts(self) -> dict:
+        with closing(self._connect()) as db:
+            return {row[0]: row[1] for row in db.execute(
+                "SELECT verification_status,COUNT(*) FROM fact_versions GROUP BY verification_status")}
+
     def consistency(self) -> dict:
         with closing(self._connect()) as db:
             missing = db.execute(
