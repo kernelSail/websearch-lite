@@ -39,9 +39,14 @@
 - 全部测试 **76 passed**
 - 真实链路：见下节运行记录
 
-## 模型说明
+## 模型说明与实测（重要）
 
-- 运行时依赖本机 Ollama + `qwen2.5:7b`（约 4.7GB）；`config.json` 的 `llm` 段可改端点与模型。
+- 运行时依赖本机 Ollama；`config.json` 的 `llm` 段可改端点与模型。
+- **本机实测**：Ollama 0.12.6 安装目录缺 CUDA 运行时（`lib` 下无 cuda 库），`ollama ps` 显示 **100% CPU**，GTX 1660 Ti 未被使用。
+  - `qwen2.5:7b` 下载卡在 4.36/4.7GB 未完成；`qwen2.5:1.5b` 下载同样停滞。最终用 `qwen2.5:3b`（1.8GB）。
+  - CPU 推理实测：单篇资料 450 字 + 150 token 输出 ≈ **140 秒**端到端。
+  - 因此参数已收紧为 `MAX_SOURCES=1`、`MAX_CHARS_PER_SOURCE=450`、`max_tokens=150`、`timeout=180`。放宽参数会超时。
+- 想快 3–5 倍：重装带 CUDA 组件的 Ollama 官方安装包（本机 `lib` 目录只有一个快捷方式，属精简安装）。
 - 模型不可用或未下载时，`/api/research` 明确返回错误并给出 `ollama pull` 提示，前端提示降级到关键词检索，**不会**用假答案糊弄。
 - 硬件：i7-9750H + GTX 1660 Ti 4GB + 32GB RAM，7B Q4 部分层 offload 到 GPU。
 
