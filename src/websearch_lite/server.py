@@ -30,6 +30,8 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from websearch_lite.app.crawl import crawl, load_config, load_domains, make_store, register_all
+from websearch_lite.app.ingest import ingest_url
+from websearch_lite.app.websearch import web_search
 from websearch_lite.query.coordinator import QueryCoordinator
 from websearch_lite.verification.verifier import Verifier
 
@@ -198,6 +200,35 @@ class Api:
         limit = min(int((params.get("limit") or ["80"])[0]), 300)
         return {"reviews": self.store.list_reviews(limit=limit)}
 
+    def websearch(self, params: dict) -> dict:
+        """联网搜索：本地库没有的内容现场去搜。结果不入库，由用户点「收录」决定。"""
+        query = (params.get("q") or [""])[0].strip()
+        if not query:
+            return {"query": "", "engine": None, "results": [], "latency_ms": 0, "errors": []}
+        limit = min(int((params.get("limit") or ["10"])[0]), 20)
+        return web_search(query, limit=limit)
+
+    # ---------- 写（串行） ----------
+    def action_ingest(self, body: dict) -> dict:
+        """把联网搜索里的一条结果抓取入库，之后再搜本地库就能命中。"""
+        url = str(body.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return {"ok": False, "error": "需要合法的 http(s) URL"}
+        with _ACTION_LOCK:
+            try:
+                result = ingest_url(self.store, self.config, url=url, run_id="web-ingest")
+                if result.get("ok"):
+                    try:
+                        from websearch_lite.indexing import build_search_port
+                        port = build_search_port(self.config, self.store)
+                        if hasattr(port, "upsert") and hasattr(port, "rebuild"):
+                            port.rebuild(self.store.all_index_documents())
+                    except Exception:
+                        pass
+                return result
+            except Exception as error:
+                return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+
     # ---------- 写（串行） ----------
     def resolve_conflict(self, body: dict) -> dict:
         conflict_id = str(body.get("conflict_id") or "")
@@ -322,6 +353,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, api.conflicts())
             if path == "/api/reviews":
                 return self._send(200, api.reviews(params))
+            if path == "/api/websearch":
+                return self._send(200, api.websearch(params))
         else:
             if path == "/api/conflicts/resolve":
                 return self._send(200, api.resolve_conflict(body))
@@ -329,6 +362,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, api.action_crawl(body))
             if path == "/api/actions/verify":
                 return self._send(200, api.action_verify(body))
+            if path == "/api/actions/ingest":
+                return self._send(200, api.action_ingest(body))
         return self._send(404, {"error": "unknown api"})
 
     # ---------- 静态资源 MIME 兜底 ----------

@@ -26,6 +26,15 @@ export const api = {
     if (status) p.set('status', status)
     return request<import('./types').SearchResponse>(`/api/search?${p}`)
   },
+  websearch: (q: string, limit = 10) => {
+    const p = new URLSearchParams({ q, limit: String(limit) })
+    return request<import('./types').WebSearchResponse>(`/api/websearch?${p}`)
+  },
+  ingest: (url: string) =>
+    request<{ ok: boolean; error?: string; title?: string; document_id?: string; chars?: number }>(
+      '/api/actions/ingest',
+      { method: 'POST', body: JSON.stringify({ url }) },
+    ),
   documents: (domain?: string, q?: string, limit = 40, offset = 0) => {
     const p = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (domain) p.set('domain', domain)

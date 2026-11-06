@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, formatTime } from '../api'
-import type { Overview, SearchResponse } from '../types'
+import type { Overview, SearchResponse, WebSearchResponse } from '../types'
 import { DomainTag, PredicateTag, StatusTag } from '../components/Tags'
 import { DocumentDrawer } from '../components/DocumentDrawer'
+import { useToast } from '../components/Toast'
 
 const STATUS_FILTERS = [
   { key: '', label: '全部状态' },
@@ -14,9 +15,13 @@ const STATUS_FILTERS = [
 
 const SUGGESTIONS = ['中标公告', '可转换公司债券', '股份回购', '医疗设备采购', '天山电子', '招标公告']
 
-function readUrl(): { q: string; domain: string } {
+function readUrl(): { q: string; domain: string; mode: 'local' | 'web' } {
   const p = new URLSearchParams(window.location.search)
-  return { q: p.get('q') ?? '', domain: p.get('domain') ?? '' }
+  return {
+    q: p.get('q') ?? '',
+    domain: p.get('domain') ?? '',
+    mode: p.get('mode') === 'web' ? 'web' : 'local',
+  }
 }
 
 export function SearchPage({ overview }: { overview: Overview | null }) {
@@ -29,6 +34,52 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [openDoc, setOpenDoc] = useState<string | null>(null)
+  // 联网模式：本地库没有的内容现场去搜
+  const [mode, setMode] = useState<'local' | 'web'>(initial.mode)
+  const [web, setWeb] = useState<WebSearchResponse | null>(null)
+  const [webLoading, setWebLoading] = useState(false)
+  const [ingesting, setIngesting] = useState<string | null>(null)
+  const [ingested, setIngested] = useState<Record<string, string>>({})
+  const toast = useToast()
+
+  const runWeb = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setWeb(null)
+      return
+    }
+    setWebLoading(true)
+    setError(null)
+    try {
+      const res = await api.websearch(query, 10)
+      setWeb(res)
+      const params = new URLSearchParams()
+      params.set('q', query)
+      params.set('mode', 'web')
+      window.history.replaceState(null, '', `?${params}`)
+    } catch (e) {
+      setError((e as Error).message)
+      setWeb(null)
+    } finally {
+      setWebLoading(false)
+    }
+  }, [])
+
+  const doIngest = async (url: string) => {
+    setIngesting(url)
+    try {
+      const res = await api.ingest(url)
+      if (res.ok) {
+        toast.push('ok', `已收录：${(res.title ?? url).slice(0, 40)}`)
+        setIngested((prev) => ({ ...prev, [url]: res.document_id ?? 'ok' }))
+      } else {
+        toast.push('err', res.error ?? '收录失败')
+      }
+    } catch (e) {
+      toast.push('err', (e as Error).message)
+    } finally {
+      setIngesting(null)
+    }
+  }
 
   const run = useCallback(
     async (query: string, dom: string, st: string, lim: number) => {
@@ -55,6 +106,11 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
     [],
   )
 
+  const submit = useCallback(() => {
+    if (mode === 'web') runWeb(q)
+    else run(q, domain, status, limit)
+  }, [mode, q, domain, status, limit, run, runWeb])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
@@ -67,8 +123,8 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
   }, [])
 
   useEffect(() => {
+    if (initial.q && initial.mode === 'web') { runWeb(initial.q); return }
     if (initial.q) run(initial.q, initial.domain, '', 12)
-    // 仅首次挂载时按 URL 恢复
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -92,6 +148,32 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
       </div>
 
       <div className="glass search-hero">
+        <div className="filter-row" style={{ marginBottom: 2 }}>
+          <button
+            className={`chip ${mode === 'local' ? 'active' : ''}`}
+            onClick={() => setMode('local')}
+          >
+            本地库
+            <span className="dim mono" style={{ fontSize: 10.5 }}>
+              {overview?.stats?.documents ?? 0}
+            </span>
+          </button>
+          <button
+            className={`chip ${mode === 'web' ? 'active' : ''}`}
+            onClick={() => setMode('web')}
+          >
+            联网搜索
+            <span className="dim mono" style={{ fontSize: 10.5 }}>
+              Bing
+            </span>
+          </button>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 4 }}>
+            {mode === 'local'
+              ? '检索已采集并结构化的事实与文档'
+              : '本地库没有的内容，现场联网搜索；可一键收录进本地库'}
+          </span>
+        </div>
+
         <div className="search-row">
           <div className="search-input-wrap">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -101,11 +183,15 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
             <input
               id="main-search"
               className="search-input"
-              placeholder="搜索公告标题、项目名称、公司或金额…（按 / 聚焦）"
+              placeholder={
+                mode === 'local'
+                  ? '检索公告标题、项目名称、公司或金额…（按 / 聚焦）'
+                  : '联网搜索任意内容，例如「大模型最新进展」…（按 / 聚焦）'
+              }
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') run(q, domain, status, limit)
+                if (e.key === 'Enter') submit()
               }}
               autoFocus
             />
@@ -113,14 +199,16 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
           <button
             className="btn btn-primary"
             style={{ height: 50, padding: '0 22px' }}
-            onClick={() => run(q, domain, status, limit)}
-            disabled={loading || !q.trim()}
+            onClick={submit}
+            disabled={(mode === 'local' ? loading : webLoading) || !q.trim()}
           >
-            {loading ? <span className="spinner" /> : null}
-            检索
+            {mode === 'local' ? (loading ? <span className="spinner" /> : null)
+                              : (webLoading ? <span className="spinner" /> : null)}
+            {mode === 'local' ? '检索' : '联网'}
           </button>
         </div>
 
+        {mode === 'local' ? (
         <div className="filter-row">
           <button
             className={`chip ${domain === '' ? 'active' : ''}`}
@@ -176,11 +264,102 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
             ))}
           </select>
         </div>
+        ) : null}
       </div>
 
       {error ? <div className="banner banner-danger">检索失败：{error}</div> : null}
 
-      {data ? (
+      {mode === 'web' ? (
+        <>
+          {web ? (
+            <>
+              <div className="metric-grid">
+                <div className="metric">
+                  <div className="metric-label">联网命中</div>
+                  <div className="metric-value">{web.results.length}</div>
+                  <div className="metric-sub">引擎 {web.engine ?? '不可用'}</div>
+                </div>
+                <div className="metric">
+                  <div className="metric-label">耗时</div>
+                  <div className="metric-value">{web.latency_ms}</div>
+                  <div className="metric-sub">毫秒</div>
+                </div>
+                <div className="metric">
+                  <div className="metric-label">已收录</div>
+                  <div className="metric-value">{Object.keys(ingested).length}</div>
+                  <div className="metric-sub">收录后本地库可搜到</div>
+                </div>
+                <div className="metric">
+                  <div className="metric-label">错误</div>
+                  <div className="metric-value" style={{ fontSize: 15 }}>
+                    {web.errors.length ? web.errors[0].slice(0, 28) : '无'}
+                  </div>
+                  <div className="metric-sub">引擎降级链</div>
+                </div>
+              </div>
+
+              <div className="result-list">
+                {web.results.map((r, i) => (
+                  <article className="result" key={r.url} style={{ cursor: 'default' }}>
+                    <div className="result-title">
+                      <span className="result-rank">#{i + 1}</span>
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                      >
+                        {r.title}
+                      </a>
+                    </div>
+                    <div className="result-snippet">{r.snippet || '（无摘要）'}</div>
+                    <div className="result-meta">
+                      <span className="tag tag-domain">{r.engine}</span>
+                      <a className="url" href={r.url} target="_blank" rel="noreferrer">
+                        {r.url.length > 76 ? r.url.slice(0, 76) + '…' : r.url}
+                      </a>
+                      <button
+                        className="btn btn-sm"
+                        style={{ marginLeft: 'auto' }}
+                        onClick={() => doIngest(r.url)}
+                        disabled={ingesting === r.url || Boolean(ingested[r.url])}
+                      >
+                        {ingesting === r.url ? <span className="spinner" /> : null}
+                        {ingested[r.url] ? '已收录' : '收录到本地库'}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {web.results.length === 0 ? (
+                  <div className="glass empty">
+                    <div className="empty-badge">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                        <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
+                        <path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20" />
+                      </svg>
+                    </div>
+                    <div>联网没有拿到结果</div>
+                    <div style={{ fontSize: 12 }}>引擎返回：{web.errors.join(' / ') || '空'}</div>
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div className="glass empty">
+              <div className="empty-badge">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
+                  <path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20" />
+                </svg>
+              </div>
+              <div>输入任意关键词，联网搜索</div>
+              <div style={{ fontSize: 12 }}>结果可直接收录进本地库，之后就能用本地检索查到</div>
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {mode === 'local' && data ? (
         <>
           <div className="metric-grid">
             <div className="metric">
@@ -269,7 +448,7 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
             ) : null}
           </div>
         </>
-      ) : (
+      ) : mode === 'web' ? null : (
         <>
           <div className="glass glass-pad">
             <div className="section-label" style={{ marginTop: 0 }}>

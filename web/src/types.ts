@@ -6,6 +6,21 @@ export type VerificationStatus =
   | 'unverified'
   | 'rejected'
 
+export interface WebSearchHit {
+  title: string
+  url: string
+  snippet: string
+  engine: string
+}
+
+export interface WebSearchResponse {
+  query: string
+  engine: string | null
+  results: WebSearchHit[]
+  latency_ms: number
+  errors: string[]
+}
+
 export interface FactRef {
   predicate: string
   normalized_value: string
