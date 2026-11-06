@@ -12,6 +12,8 @@ from websearch_lite.paths import find_project_root
 ROOT = find_project_root()
 
 from websearch_lite.app.crawl import crawl, load_config, load_domains, make_store, probe, register_all
+from websearch_lite.app.recovery import Recovery
+from websearch_lite.app.scheduler import Scheduler
 from websearch_lite.eval.p0_eval import run_eval
 from websearch_lite.eval.p2_eval import evaluate as evaluate_p2
 from websearch_lite.eval.p3_eval import evaluate as evaluate_p3
@@ -19,6 +21,8 @@ from websearch_lite.eval.p4_eval import evaluate as evaluate_p4
 from websearch_lite.facts.extractor import FactExtractor
 from websearch_lite.pipeline.runs import finish_run, start_run
 from websearch_lite.query.coordinator import QueryCoordinator
+from websearch_lite.storage import migration
+from websearch_lite.storage.consistency import check_consistency, rebuild_index
 from websearch_lite.verification.verifier import Verifier
 
 
@@ -61,6 +65,21 @@ def main(argv: list[str] | None = None) -> int:
     p_ask.add_argument("--until")
     p_ask.add_argument("--status", help="事实状态过滤：verified/single-source/conflicting/stale")
     sub.add_parser("eval4", help="P4：Recall@K / nDCG@K / 引用正确率评测")
+    p_sched = sub.add_parser("schedule", help="P5：查看到期任务 / 排下一次")
+    p_sched.add_argument("--reschedule", metavar="SOURCE_ID")
+    p_rec = sub.add_parser("recover", help="P5：崩溃恢复（重置超时 running、有限重试、消费 pipeline 任务）")
+    p_rec.add_argument("--dry-run", action="store_true")
+    sub.add_parser("migrate", help="P5：应用未执行的迁移")
+    p_backup = sub.add_parser("backup", help="P5：备份数据库与配置")
+    p_backup.add_argument("--dir")
+    p_verify_backup = sub.add_parser("verify-backup", help="P5：校验备份可恢复")
+    p_verify_backup.add_argument("backup_dir")
+    p_restore = sub.add_parser("restore", help="P5：恢复演练（默认 dry-run）")
+    p_restore.add_argument("backup_dir")
+    p_restore.add_argument("--apply", action="store_true")
+    sub.add_parser("check", help="P5：一致性检查（SQLite vs 检索投影）")
+    sub.add_parser("rebuild", help="P5：从 SQLite 全量重建检索投影")
+    sub.add_parser("storage", help="P5：存储路径/移动盘可用性检查")
 
     args = parser.parse_args(argv)
     config = load_config()
@@ -189,6 +208,56 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "eval4":
         print(json.dumps(evaluate_p4(QueryCoordinator(store, config)), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "schedule":
+        scheduler = Scheduler(store, config)
+        if args.reschedule:
+            updated = scheduler.reschedule(args.reschedule)
+            print(json.dumps({"source_id": args.reschedule, "requeued": updated}, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(scheduler.stats(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "recover":
+        recovery = Recovery(store, config)
+        if args.dry_run:
+            print(json.dumps({
+                "due": len(Scheduler(store, config).due_tasks()),
+                "pipeline_pending": store.stats()["pipeline_tasks"],
+            }, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(recovery.run(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "migrate":
+        print(json.dumps(migration.migrate(store), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "backup":
+        print(json.dumps(migration.backup(store, backup_dir=args.dir), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "verify-backup":
+        print(json.dumps(migration.verify_backup(args.backup_dir), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "restore":
+        result = migration.restore(store, args.backup_dir, dry_run=not args.apply)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("check", {}).get("valid") else 1
+
+    if args.command == "check":
+        port = QueryCoordinator(store, config).port
+        print(json.dumps(check_consistency(store, port, config), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "rebuild":
+        print(json.dumps(rebuild_index(store, config), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "storage":
+        print(json.dumps(migration.check_storage_paths(store), ensure_ascii=False, indent=2))
         return 0
 
     return 1

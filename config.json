@@ -26,6 +26,13 @@
     "stale_days": 180,
     "repost_simhash_threshold": 6
   },
+  "p5": {
+    "default_frequency": "daily",
+    "rate_limit_rps": 1.0,
+    "running_stale_minutes": 30,
+    "max_retries": 3,
+    "backup_dir": "D:/study/deepseek-work/websearch-lite/backups"
+  },
   "consistency": {
     "mismatch_warn_threshold": 1,
     "rebuild_trigger_percent": 1.0

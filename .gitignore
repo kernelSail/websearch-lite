@@ -6,5 +6,6 @@ __pycache__/
 shared/temp/
 shared/registry.db
 domains_index/
+backups/
 *.log
 .pytest_cache/
