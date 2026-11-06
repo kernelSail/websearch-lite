@@ -349,4 +349,16 @@ def serve(host: str = "127.0.0.1", port: int = 8765) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(serve())
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="websearch-lite-server", description="本地控制台 HTTP 服务")
+    parser.add_argument("--host", default="127.0.0.1", help="绑定地址（默认仅本机）")
+    parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
+    parser.add_argument("--open", action="store_true", help="启动后打开浏览器")
+    args = parser.parse_args()
+    if args.open:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.2, lambda: webbrowser.open(f"http://{args.host}:{args.port}")).start()
+    sys.exit(serve(host=args.host, port=args.port))
