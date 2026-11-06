@@ -35,6 +35,11 @@ export interface SearchResponse {
   routed_domains: string[]
   latency_ms: number
   results: SearchResult[]
+  query_terms?: {
+    specific: string[]
+    generic: string[]
+    df: Record<string, number>
+  }
 }
 
 export interface Overview {

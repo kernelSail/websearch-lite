@@ -115,3 +115,35 @@ def test_facts_and_reviews_shape():
         assert "conflicts" in api.conflicts()
 
     _with_temp_api(run)
+
+
+def test_irrelevant_query_returns_empty_not_noise():
+    """
+    回归：查「关于大模型的最新知识」时，公文套话「关于」曾把全部公告拉进结果。
+    现在泛词不参与召回 + 覆盖率守门，应返回空。
+    """
+    def run(api, _cfg):
+        for i in range(4):
+            api.store.ingest(domain_id="gov_procurement", source_id="ccgp",
+                             url=f"https://a.cn/about-{i}", canonical_url=f"https://a.cn/about-{i}",
+                             title=f"关于第{i}项政府采购事项的公告",
+                             text=f"关于第{i}项采购的说明。项目编号：A-{i}",
+                             published_at=None, fetched_at="2026-11-06T00:00:00Z",
+                             http_status=200, etag=None, last_modified=None,
+                             extraction_status="success", metadata={},
+                             doc_type="procurement", run_id="r")
+        from websearch_lite.indexing.tantivy_port import TantivySearchPort
+        port = TantivySearchPort(api.config["tantivy_root"])
+        port.rebuild(api.store.all_index_documents())
+        api.coordinator = server_mod.QueryCoordinator(api.store, api.config)
+
+        out = api.search({"q": ["关于大模型的最新知识"], "limit": ["8"]})
+        assert out["results"] == [], [r["title"] for r in out["results"]]
+        # 「关于」应被识别为泛词并回报给前端，便于解释为什么没结果
+        assert "关于" in out["query_terms"]["generic"], out["query_terms"]
+
+        # 正常业务查询仍然命中
+        hit = api.search({"q": ["政府采购"], "limit": ["5"]})
+        assert hit["results"], "正常查询不应被误杀"
+
+    _with_temp_api(run)

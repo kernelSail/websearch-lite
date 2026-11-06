@@ -312,6 +312,25 @@ class Store:
         with closing(self._connect()) as db:
             return [dict(r) for r in db.execute("SELECT * FROM documents_index").fetchall()]
 
+    def document_frequencies(self, tokens: list[str]) -> dict[str, float]:
+        """
+        词在语料中的文档频率（0–1）。用于识别「关于」这类公文套话：
+        几乎出现在所有标题里的词不该参与 OR 召回，否则无关查询也能命中大量结果。
+        """
+        if not tokens:
+            return {}
+        with closing(self._connect()) as db:
+            total = db.execute("SELECT COUNT(*) FROM documents_index").fetchone()[0] or 1
+            out: dict[str, float] = {}
+            for token in dict.fromkeys(tokens):
+                pattern = f"%{token}%"
+                hit = db.execute(
+                    "SELECT COUNT(*) FROM documents_index WHERE title LIKE ? OR snippet LIKE ?",
+                    (pattern, pattern),
+                ).fetchone()[0]
+                out[token] = round(hit / total, 4)
+            return out
+
     def all_document_versions(self) -> list[dict]:
         """供 P2 补跑结构化抽取：用已存的 snippet 作为文本（不长期存全文）。"""
         with closing(self._connect()) as db:

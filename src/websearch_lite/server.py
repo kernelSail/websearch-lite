@@ -81,7 +81,8 @@ class Api:
         query = (params.get("q") or [""])[0].strip()
         if not query:
             return {"query": "", "results": [], "answer": "", "citations_valid": True,
-                    "routed_domains": [], "latency_ms": 0}
+                    "routed_domains": [], "latency_ms": 0,
+                    "query_terms": {"specific": [], "generic": [], "df": {}}}
         limit = int((params.get("limit") or ["12"])[0])
         domain = (params.get("domain") or [""])[0] or None
         status = (params.get("status") or [""])[0] or None
@@ -116,6 +117,7 @@ class Api:
                 }
                 for r in result["results"]
             ],
+            "query_terms": result.get("query_terms", {"specific": [], "generic": [], "df": {}}),
         }
 
     def documents(self, params: dict) -> dict:

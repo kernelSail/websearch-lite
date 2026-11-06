@@ -50,6 +50,28 @@ class QueryCoordinator:
         return priority + rest
 
     # ---------- 检索 ----------
+    GENERIC_DF_RATIO = 0.5   # 出现在 >50% 文档中的词视为公文套话（关于/公告等）
+    MIN_COVERAGE = 0.5       # 结果相关性下限：低于此且无整短语命中则丢弃
+
+    def _query_tokens_with_idf(self, query: str) -> tuple[list[str], list[str], dict[str, float]]:
+        """
+        区分「有区分度的词」与「泛词」。
+        「关于大模型的最新知识」里「关于」几乎出现在所有公告标题，若让它参与 OR
+        召回，任何查询都会返回一堆无关公告。返回 (有效词, 泛词, 频率表)。
+        """
+        from ..indexing.tokenizer import query_tokens
+
+        tokens = query_tokens(query)
+        if not tokens:
+            return [], [], {}
+        try:
+            df = self.store.document_frequencies(tokens)
+        except Exception:
+            return tokens, [], {}
+        specific = [t for t in tokens if df.get(t, 0.0) <= self.GENERIC_DF_RATIO]
+        generic = [t for t in tokens if df.get(t, 0.0) > self.GENERIC_DF_RATIO]
+        return specific, generic, df
+
     def search(self, query: str, *, filters: dict | None = None, limit: int = 20) -> dict:
         filters = filters or {}
         domains = self.route(query, filters)
@@ -58,11 +80,29 @@ class QueryCoordinator:
         raw: list[dict] = []
         rank_lists: list[tuple[list[str], float]] = []
 
+        # 泛词不参与召回：避免「关于」把全部公告拉进来
+        specific, generic, df_table = self._query_tokens_with_idf(query)
+        if generic:
+            # 有效词 + 泛词同时作为 AND 条件会过严，因此只用有区分度的词检索
+            search_tokens = specific or []
+        else:
+            search_tokens = []
+
         def collect(port, variant: str, domain_id: str, weight: float = 1.0) -> None:
             # 内部用更大候选池，避免融合前就把尾部相关内容截掉；最终仍按 limit 返回
             pool = max(limit * 3, 20)
             try:
-                hits = port.search(variant, filters={**filters, "domain_id": domain_id}, limit=pool)
+                if search_tokens:
+                    hits = port.search(variant, filters={**filters, "domain_id": domain_id},
+                                       limit=pool, tokens=search_tokens)
+                else:
+                    hits = port.search(variant, filters={**filters, "domain_id": domain_id}, limit=pool)
+            except TypeError:
+                # 补充引擎（FTS5）不支持 tokens 参数，回退到普通检索
+                try:
+                    hits = port.search(variant, filters={**filters, "domain_id": domain_id}, limit=pool)
+                except Exception:
+                    return
             except Exception:
                 return
             for rank, hit in enumerate(hits):
@@ -100,6 +140,11 @@ class QueryCoordinator:
         raw = self._dedup(raw)
         # 统一重排：归一化分 + 查询词覆盖 + 权威权重 + 新近度
         raw = self._rerank(raw, filters, query)
+        # 相关性守门：覆盖率过低且无整短语命中的结果一律丢弃，
+        # 宁可返回空也不要给用户看「关于大模型」→ 政府采购公告。
+        raw = [r for r in raw
+               if float(r.get("term_coverage") or 0.0) >= self.MIN_COVERAGE
+               or float(r.get("phrase_hit") or 0.0) > 0.0]
         # 事实/证据约束
         self._attach_facts(raw, filters)
 
@@ -109,6 +154,7 @@ class QueryCoordinator:
             "results": raw[:limit],
             "answer": self.render_answer(query, raw[:limit]),
             "citations_valid": self._validate_citations(raw[:limit]),
+            "query_terms": {"specific": specific, "generic": generic, "df": df_table},
         }
 
     def _apply_filters(self, rows: list[dict], filters: dict) -> list[dict]:

@@ -250,8 +250,21 @@ export function SearchPage({ overview }: { overview: Overview | null }) {
                     <path d="m20 20-3.2-3.2" />
                   </svg>
                 </div>
-                <div>没有命中结果</div>
-                <div style={{ fontSize: 12 }}>尝试更短的关键词，或切换域/状态筛选</div>
+                <div>没有相关结果</div>
+                <div style={{ fontSize: 12, maxWidth: 460 }}>
+                  本地库里没有与该查询相关的文档。本系统只检索已采集的政府采购与上市公司公告，
+                  不是通用搜索引擎，因此「大模型最新知识」这类时效性通用问题不会有结果。
+                </div>
+                {(data.query_terms?.generic?.length ?? 0) > 0 ? (
+                  <div style={{ fontSize: 12, marginTop: 6 }}>
+                    已被忽略的通用词：
+                    {data.query_terms!.generic.map((g) => (
+                      <span key={g} className="tag tag-pending" style={{ marginLeft: 6 }}>
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

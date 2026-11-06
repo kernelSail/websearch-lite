@@ -110,10 +110,11 @@ class TantivySearchPort:
             except Exception:
                 continue
 
-    def search(self, query: str, *, filters: dict | None = None, limit: int = 20) -> list[dict]:
+    def search(self, query: str, *, filters: dict | None = None, limit: int = 20,
+               tokens: list[str] | None = None) -> list[dict]:
         filters = filters or {}
         domain_ids = [filters["domain_id"]] if filters.get("domain_id") else list(self.domains)
-        tokens = query_tokens(query)
+        tokens = tokens if tokens else query_tokens(query)
         if not tokens:
             return []  # 全部是停用词/标点：没有可检索内容，返回空而不是匹配所有文档
         # AND 优先保证精确（「中标公告」要求同时含 中标+公告），召回不足时退化为 OR。
