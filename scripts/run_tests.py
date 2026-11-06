@@ -18,7 +18,7 @@ def load(name: str):
 
 
 def run():
-    suites = [load("test_p0"), load("test_p1")]
+    suites = [load("test_p0"), load("test_p1"), load("test_p2")]
     passed = 0
     failed = []
     for suite in suites:

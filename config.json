@@ -19,6 +19,9 @@
     "local_endpoint": "http://127.0.0.1:11434/v1",
     "model": "qwen2.5:7b"
   },
+  "p2": {
+    "extract_on_ingest": true
+  },
   "consistency": {
     "mismatch_warn_threshold": 1,
     "rebuild_trigger_percent": 1.0

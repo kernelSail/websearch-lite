@@ -1,0 +1,55 @@
+{
+  "schema_id": "procurement_v1",
+  "domain_id": "gov_procurement",
+  "doc_types": ["procurement", "other"],
+  "entity_types": ["organization", "project", "unknown"],
+  "facts": [
+    {
+      "predicate": "project_name",
+      "label": "项目名称",
+      "value_type": "text",
+      "patterns": ["项目名称[:：]\\s*([^\\n]{4,80})", "项目名称\\s+([^\\n]{4,80})"],
+      "required": false
+    },
+    {
+      "predicate": "project_code",
+      "label": "项目编号",
+      "value_type": "text",
+      "patterns": ["项目编号[:：]\\s*([A-Za-z0-9\\-\\[\\]（）()]{4,60})"],
+      "required": false
+    },
+    {
+      "predicate": "winner",
+      "label": "中标/成交供应商",
+      "value_type": "text",
+      "patterns": ["(?:中标|成交)(?:供应商)?(?:名称)?[:：]\\s*([^\\n]{2,60})", "供应商名称[:：]\\s*([^\\n]{2,60})"],
+      "required": false
+    },
+    {
+      "predicate": "award_amount",
+      "label": "中标金额",
+      "value_type": "money",
+      "patterns": ["(?:中标|成交)(?:金额|价)[:：]?\\s*([0-9,.]+\\s*(?:万元|元|亿元))", "金额[:：]\\s*([0-9,.]+\\s*(?:万元|元|亿元))"],
+      "required": false
+    },
+    {
+      "predicate": "purchaser",
+      "label": "采购人",
+      "value_type": "text",
+      "patterns": ["采购人(?:名称)?[:：]\\s*([^\\n]{2,60})", "采购单位[:：]\\s*([^\\n]{2,60})"],
+      "required": false
+    },
+    {
+      "predicate": "budget",
+      "label": "预算金额",
+      "value_type": "money",
+      "patterns": ["预算(?:金额|价)[:：]?\\s*([0-9,.]+\\s*(?:万元|元|亿元))"],
+      "required": false
+    }
+  ],
+  "entity_resolution": {
+    "stable_id_fields": ["project_code"],
+    "candidate_fields": ["project_name", "winner", "purchaser"],
+    "no_auto_merge_without_stable_id": true
+  }
+}

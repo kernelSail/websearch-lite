@@ -1,0 +1,57 @@
+{
+  "version": "p2-v1",
+  "note": "P2 字段级人工标注样本草案。expected 为期望抽取值（normalized），用于计算 P/R/F1。",
+  "samples": [
+    {
+      "id": "s01",
+      "domain_id": "gov_procurement",
+      "text": "项目名称：某某医院设备采购项目\n项目编号：11011726210200012540-XM001\n中标供应商：北京示例科技有限公司\n中标金额：1,234.56 万元\n采购人：某某医院",
+      "expected": {
+        "project_name": "某某医院设备采购项目",
+        "project_code": "11011726210200012540-XM001",
+        "winner": "北京示例科技有限公司",
+        "award_amount": "12345600.0",
+        "purchaser": "某某医院"
+      }
+    },
+    {
+      "id": "s02",
+      "domain_id": "gov_procurement",
+      "text": "项目编号：[230001]HTCL[GK]20260034\n预算金额：980 万元\n采购人：黑龙江省某医院\n中标金额：0.98 亿元",
+      "expected": {
+        "project_code": "[230001]HTCL[GK]20260034",
+        "budget": "9800000.0",
+        "purchaser": "黑龙江省某医院",
+        "award_amount": "98000000.0"
+      }
+    },
+    {
+      "id": "s03",
+      "domain_id": "listed_announcement",
+      "text": "证券代码：000001\n证券简称：平安银行\n公告类型：年度报告\n公司名称：平安银行股份有限公司",
+      "metadata": {"sec_code": "000001", "sec_name": "平安银行"},
+      "expected": {
+        "sec_code": "000001",
+        "sec_name": "平安银行",
+        "announcement_type": "年度报告",
+        "company_name": "平安银行股份有限公司"
+      }
+    },
+    {
+      "id": "s04",
+      "domain_id": "listed_announcement",
+      "text": "国信证券股份有限公司关于山东南山铝业股份有限公司向不特定对象发行可转换公司债券之上市公告书\n证券代码：600219\n公告类型：临时公告",
+      "metadata": {},
+      "expected": {
+        "sec_code": "600219",
+        "announcement_type": "临时公告"
+      }
+    },
+    {
+      "id": "s05",
+      "domain_id": "gov_procurement",
+      "text": "这是一段与采购无关的普通说明文字，没有结构化字段。",
+      "expected": {}
+    }
+  ]
+}

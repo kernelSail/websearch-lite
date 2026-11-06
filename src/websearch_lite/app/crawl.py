@@ -166,6 +166,28 @@ def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: in
                 counters["fetched"] += 1
                 if ingested["new_version"]:
                     counters["ingested"] += 1
+                    # P2：结构化抽取（仅新版本，避免重复生成事实）
+                    if config.get("p2", {}).get("extract_on_ingest", True):
+                        try:
+                            from ..facts.extractor import FactExtractor
+                            extractor = FactExtractor(store, domain_id)
+                            extract_meta = dict(metadata or {})
+                            extract_meta["source_id"] = source_id
+                            if api_meta:
+                                extract_meta.update({k: api_meta[k] for k in
+                                                     ("sec_code", "sec_name", "published_at") if api_meta.get(k)})
+                            extracted = extractor.extract_document(
+                                document_version_id=ingested["document_version_id"],
+                                text=text, metadata=extract_meta, run_id=run_id,
+                            )
+                            counters["facts_created"] = counters.get("facts_created", 0) + extracted["created"]
+                        except Exception as error:
+                            counters["extract_failed"] = counters.get("extract_failed", 0) + 1
+                            store.finish_crawl(task["crawl_task_id"], "succeeded",
+                                               http_status=result.status_code,
+                                               etag=result.headers.get("etag"),
+                                               last_modified=result.headers.get("last-modified"),
+                                               error=f"P2_EXTRACT_FAILED:{error}")
                 else:
                     counters["reused"] += 1
                 store.finish_crawl(task["crawl_task_id"], "succeeded", http_status=result.status_code,

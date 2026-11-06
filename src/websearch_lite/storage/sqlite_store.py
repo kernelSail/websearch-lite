@@ -268,12 +268,40 @@ class Store:
                 "pipeline_tasks": count("SELECT COUNT(*) FROM pipeline_tasks"),
                 "queries": count("SELECT COUNT(*) FROM query_log"),
                 "review_tasks": count("SELECT COUNT(*) FROM review_tasks"),
+                "entities": count("SELECT COUNT(*) FROM entities"),
+                "facts": count("SELECT COUNT(*) FROM facts"),
+                "fact_versions": count("SELECT COUNT(*) FROM fact_versions"),
+                "fact_evidences": count("SELECT COUNT(*) FROM fact_evidences"),
+                "raw_fact_candidates": count("SELECT COUNT(*) FROM raw_fact_candidates"),
             }
 
     def all_index_documents(self) -> list[dict]:
         """供 Tantivy 从 SQLite 权威数据重建检索投影（V1.1 §11.4）。"""
         with closing(self._connect()) as db:
             return [dict(r) for r in db.execute("SELECT * FROM documents_index").fetchall()]
+
+    def all_document_versions(self) -> list[dict]:
+        """供 P2 补跑结构化抽取：用已存的 snippet 作为文本（不长期存全文）。"""
+        with closing(self._connect()) as db:
+            return [dict(r) for r in db.execute(
+                """SELECT dv.document_version_id, dv.title, dv.snippet, dv.published_at,
+                          d.domain_id, d.source_id
+                   FROM document_versions dv JOIN documents d ON d.document_id=dv.document_id
+                   WHERE d.lifecycle_status='active'"""
+            ).fetchall()]
+
+    def list_facts(self, domain_id: str | None = None, limit: int = 50) -> list[dict]:
+        with closing(self._connect()) as db:
+            clause = " WHERE f.domain_id=?" if domain_id else ""
+            params: list = [domain_id] if domain_id else []
+            return [dict(r) for r in db.execute(
+                """SELECT f.fact_id, f.domain_id, f.predicate, e.primary_name AS subject,
+                          fv.normalized_value, fv.unit, fv.currency, fv.verification_status,
+                          fv.schema_version, fv.created_at
+                   FROM facts f JOIN entities e ON e.entity_id=f.subject_id
+                   JOIN fact_versions fv ON fv.fact_id=f.fact_id""" + clause +
+                " ORDER BY fv.created_at DESC LIMIT ?", [*params, limit]
+            ).fetchall()]
 
     def consistency(self) -> dict:
         with closing(self._connect()) as db:

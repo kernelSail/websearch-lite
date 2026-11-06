@@ -1,0 +1,42 @@
+{
+  "schema_id": "announcement_v1",
+  "domain_id": "listed_announcement",
+  "doc_types": ["announcement", "other"],
+  "entity_types": ["listed_company", "unknown"],
+  "facts": [
+    {
+      "predicate": "sec_code",
+      "label": "证券代码",
+      "value_type": "text",
+      "patterns": ["证券代码[:：]\\s*([0-9]{6})", "\\(([0-9]{6})\\)"],
+      "required": false
+    },
+    {
+      "predicate": "sec_name",
+      "label": "证券简称",
+      "value_type": "text",
+      "patterns": ["证券简称[:：]\\s*([^\\n\\s]{2,20})"],
+      "required": false
+    },
+    {
+      "predicate": "announcement_type",
+      "label": "公告类型",
+      "value_type": "enum",
+      "enum": ["年度报告", "半年度报告", "季度报告", "临时公告", "中介意见", "其他"],
+      "patterns": ["(年度报告|半年度报告|季度报告|临时公告|中介意见)"],
+      "required": false
+    },
+    {
+      "predicate": "company_name",
+      "label": "公司名称",
+      "value_type": "text",
+      "patterns": ["(?:公司|股份有限公司)[:：]?名称?[:：]?\\s*([^\\n]{2,60}?(?:有限公司|股份有限公司))"],
+      "required": false
+    }
+  ],
+  "entity_resolution": {
+    "stable_id_fields": ["sec_code"],
+    "candidate_fields": ["sec_name", "company_name"],
+    "no_auto_merge_without_stable_id": true
+  }
+}

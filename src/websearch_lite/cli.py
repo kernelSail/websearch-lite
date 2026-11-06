@@ -1,4 +1,4 @@
-"""P0 CLI."""
+"""P0–P2 CLI。"""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,9 @@ ROOT = find_project_root()
 
 from websearch_lite.app.crawl import crawl, load_config, load_domains, make_store, probe, register_all
 from websearch_lite.eval.p0_eval import run_eval
+from websearch_lite.eval.p2_eval import evaluate as evaluate_p2
+from websearch_lite.facts.extractor import FactExtractor
+from websearch_lite.pipeline.runs import finish_run, start_run
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("health", help="来源健康")
     sub.add_parser("consistency", help="SQLite/索引一致性")
     sub.add_parser("eval", help="跑 P0 固定查询集评测")
+    p_extract = sub.add_parser("extract", help="P2：补跑结构化事实抽取")
+    p_extract.add_argument("--domain")
+    sub.add_parser("eval2", help="P2：字段级 P/R/F1 评测")
+    p_facts = sub.add_parser("facts", help="查看已抽取的结构化事实")
+    p_facts.add_argument("--domain")
+    p_facts.add_argument("--limit", type=int, default=50)
 
     args = parser.parse_args(argv)
     config = load_config()
@@ -76,6 +85,39 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "eval":
         print(json.dumps(run_eval(store), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "extract":
+        run_id = start_run(store, config, code_version="p2.1")
+        extractors = {d: FactExtractor(store, d) for d in domains}
+        totals = {"versions": 0, "created": 0, "failed": 0}
+        for row in store.all_document_versions():
+            if args.domain and row["domain_id"] != args.domain:
+                continue
+            try:
+                result = extractors[row["domain_id"]].extract_document(
+                    document_version_id=row["document_version_id"],
+                    text=row["snippet"] or "",
+                    metadata={"source_id": row["source_id"], "published_at": row["published_at"]},
+                    run_id=run_id,
+                )
+                totals["versions"] += 1
+                totals["created"] += result["created"]
+            except Exception as error:
+                totals["failed"] += 1
+                print(f"EXTRACT_FAILED {row['document_version_id']}: {error}", file=sys.stderr)
+        finish_run(store, run_id)
+        totals["run_id"] = run_id
+        print(json.dumps(totals, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "eval2":
+        print(json.dumps(evaluate_p2(), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "facts":
+        print(json.dumps(store.list_facts(domain_id=args.domain, limit=args.limit),
+                         ensure_ascii=False, indent=2))
         return 0
 
     return 1
