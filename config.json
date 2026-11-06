@@ -19,7 +19,13 @@
   "classifier": {
     "mode": "rule",
     "local_endpoint": "http://127.0.0.1:11434/v1",
-    "model": "qwen2.5:7b"
+    "model": "qwen2.5:3b"
+  },
+  "llm": {
+    "endpoint": "http://127.0.0.1:11434",
+    "model": "qwen2.5:3b",
+    "timeout": 180,
+    "max_sources": 5
   },
   "p2": {
     "extract_on_ingest": true

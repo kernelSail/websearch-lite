@@ -230,6 +230,51 @@ class Api:
                 return {"ok": False, "error": f"{type(error).__name__}: {error}"}
 
     # ---------- 写（串行） ----------
+    def llm_client(self):
+        cfg = self.config.get("llm", {})
+        from websearch_lite.app.llm import LLMClient
+
+        return LLMClient(
+            endpoint=str(cfg.get("endpoint", "http://127.0.0.1:11434")),
+            model=str(cfg.get("model", "qwen2.5:7b")),
+            timeout=int(cfg.get("timeout", 300)),
+        )
+
+    def llm_probe(self) -> dict:
+        try:
+            return self.llm_client().probe()
+        except Exception as error:
+            return {"available": False, "error": str(error)}
+
+    def research(self, body: dict, handler=None) -> dict:
+        """深度检索：联网搜索 → 抓正文 → 模型总结。handler 存在时同时推 SSE 事件。"""
+        question = str(body.get("question") or "").strip()
+        if not question:
+            return {"ok": False, "error": "question 必填"}
+        max_sources = min(int(body.get("max_sources") or 5), 8)
+        llm = self.llm_client()
+        probe = llm.probe()
+        if not probe.get("available"):
+            return {"ok": False, "error": f"本地模型不可用：{probe.get('error') or '无已下载模型'}",
+                    "probe": probe}
+        if not probe.get("model_present"):
+            return {"ok": False,
+                    "error": f"模型 {llm.model} 未下载，请先执行 ollama pull {llm.model}",
+                    "probe": probe}
+
+        from websearch_lite.app.research import research as run_research
+
+        def on_event(event: dict) -> None:
+            if handler is not None:
+                handler.sse(event)
+
+        with _ACTION_LOCK:
+            try:
+                return run_research(question=question, store=self.store, config=self.config,
+                                    llm=llm, max_sources=max_sources, on_event=on_event)
+            except Exception as error:
+                return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+
     def resolve_conflict(self, body: dict) -> dict:
         conflict_id = str(body.get("conflict_id") or "")
         winner = str(body.get("winner") or "")
@@ -270,6 +315,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args) -> None:  # 静默：避免刷屏
         return
+
+    # ---------- SSE ----------
+    def start_sse(self) -> None:
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream; charset=utf-8")
+        self.send_header("cache-control", "no-cache")
+        self.send_header("connection", "close")
+        self.send_header("access-control-allow-origin", "*")
+        self.end_headers()
+        self.wfile.flush()
+
+    def sse(self, payload: dict, event: str = "message") -> None:
+        try:
+            chunk = f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            self.wfile.write(chunk.encode("utf-8"))
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     # ---------- 工具 ----------
     def _send(self, status: int, payload: dict | bytes, content_type: str = "application/json; charset=utf-8") -> None:
@@ -355,7 +418,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, api.reviews(params))
             if path == "/api/websearch":
                 return self._send(200, api.websearch(params))
+            if path == "/api/llm":
+                return self._send(200, api.llm_probe())
         else:
+            if path == "/api/research":
+                # 流式：先推阶段事件，最后推完整结果
+                self.start_sse()
+                result = api.research(body, handler=self)
+                self.sse(result, event="done")
+                return
             if path == "/api/conflicts/resolve":
                 return self._send(200, api.resolve_conflict(body))
             if path == "/api/actions/crawl":

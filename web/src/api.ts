@@ -72,6 +72,64 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ domain: domain ?? '', max_pages: maxPages ?? null }),
     }),
+  llm: () =>
+    request<{ available: boolean; models?: string[]; model_present?: boolean; error?: string }>(
+      '/api/llm',
+    ),
+}
+
+/**
+ * 深度检索：POST /api/research，服务端 SSE 推阶段事件，最后推 done。
+ * 用 fetch + ReadableStream 读取（EventSource 不支持 POST）。
+ */
+export async function researchStream(
+  question: string,
+  onStage: (stage: import('./types').ResearchStage) => void,
+  signal?: AbortSignal,
+): Promise<import('./types').ResearchResponse> {
+  const res = await fetch('/api/research', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ question }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    throw new Error(`HTTP ${res.status}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let final: import('./types').ResearchResponse | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() ?? ''
+    for (const chunk of chunks) {
+      const lines = chunk.split('\n')
+      let event = 'message'
+      let data = ''
+      for (const line of lines) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+      if (!data) continue
+      let payload: unknown
+      try {
+        payload = JSON.parse(data)
+      } catch {
+        continue
+      }
+      if (event === 'done') {
+        final = payload as import('./types').ResearchResponse
+      } else {
+        onStage(payload as import('./types').ResearchStage)
+      }
+    }
+  }
+  return final ?? { ok: false, error: '流式响应未收到结果' }
 }
 
 export function formatTime(iso: string | null | undefined): string {

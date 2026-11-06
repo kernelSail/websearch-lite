@@ -3,22 +3,24 @@ import { api } from './api'
 import type { Overview } from './types'
 import { ToastProvider } from './components/Toast'
 import { SearchPage } from './pages/SearchPage'
+import { ResearchPage } from './pages/ResearchPage'
 import { FactsPage } from './pages/FactsPage'
 import { ConflictsPage } from './pages/ConflictsPage'
 import { ReviewsPage } from './pages/ReviewsPage'
 import { SystemPage } from './pages/SystemPage'
 
-type Page = 'search' | 'facts' | 'conflicts' | 'reviews' | 'system'
+type Page = 'search' | 'research' | 'facts' | 'conflicts' | 'reviews' | 'system'
 
 const NAV: Array<{ key: Page; label: string }> = [
   { key: 'search', label: '检索' },
+  { key: 'research', label: '深度' },
   { key: 'facts', label: '事实' },
   { key: 'conflicts', label: '冲突' },
   { key: 'reviews', label: '复核' },
   { key: 'system', label: '系统' },
 ]
 
-const VALID: Page[] = ['search', 'facts', 'conflicts', 'reviews', 'system']
+const VALID: Page[] = ['search', 'research', 'facts', 'conflicts', 'reviews', 'system']
 
 function pageFromHash(): Page {
   const raw = window.location.hash.replace(/^#\/?/, '')
@@ -59,6 +61,7 @@ export default function App() {
 
   const counts: Record<Page, number | undefined> = {
     search: undefined,
+    research: undefined,
     facts: overview?.stats?.facts,
     conflicts: undefined,
     reviews: overview?.stats?.review_tasks,
@@ -129,6 +132,7 @@ export default function App() {
           ) : null}
 
           {page === 'search' ? <SearchPage overview={overview} /> : null}
+          {page === 'research' ? <ResearchPage /> : null}
           {page === 'facts' ? <FactsPage overview={overview} /> : null}
           {page === 'conflicts' ? <ConflictsPage /> : null}
           {page === 'reviews' ? <ReviewsPage /> : null}

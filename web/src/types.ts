@@ -21,6 +21,34 @@ export interface WebSearchResponse {
   errors: string[]
 }
 
+export interface ResearchSource {
+  index: number
+  title: string | null
+  url: string | null
+  origin: string
+  chars?: number | null
+  relevance?: number | null
+  domain_id?: string | null
+}
+
+export interface ResearchStage {
+  stage: string
+  elapsed_ms: number
+  [key: string]: unknown
+}
+
+export interface ResearchResponse {
+  ok: boolean
+  error?: string
+  answer?: string
+  sources?: ResearchSource[]
+  citations?: number[]
+  invalid_citations?: number[]
+  stages?: ResearchStage[]
+  model?: string
+  elapsed_ms?: number
+}
+
 export interface FactRef {
   predicate: string
   normalized_value: string
