@@ -1,0 +1,40 @@
+[
+  {
+    "id": "p4_01",
+    "query": "采购",
+    "relevant_domains": [
+      "gov_procurement"
+    ],
+    "k": 5
+  },
+  {
+    "id": "p4_02",
+    "query": "中标",
+    "relevant_domains": [
+      "gov_procurement"
+    ],
+    "k": 5
+  },
+  {
+    "id": "p4_03",
+    "query": "证券代码",
+    "relevant_domains": [
+      "listed_announcement"
+    ],
+    "k": 5
+  },
+  {
+    "id": "p4_04",
+    "query": "公告",
+    "relevant_domains": [
+      "listed_announcement"
+    ],
+    "k": 5
+  },
+  {
+    "id": "p4_05",
+    "query": "zzzz-不存在-xyz",
+    "relevant_domains": [],
+    "k": 5
+  }
+]

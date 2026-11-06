@@ -15,8 +15,10 @@ from websearch_lite.app.crawl import crawl, load_config, load_domains, make_stor
 from websearch_lite.eval.p0_eval import run_eval
 from websearch_lite.eval.p2_eval import evaluate as evaluate_p2
 from websearch_lite.eval.p3_eval import evaluate as evaluate_p3
+from websearch_lite.eval.p4_eval import evaluate as evaluate_p4
 from websearch_lite.facts.extractor import FactExtractor
 from websearch_lite.pipeline.runs import finish_run, start_run
+from websearch_lite.query.coordinator import QueryCoordinator
 from websearch_lite.verification.verifier import Verifier
 
 
@@ -51,6 +53,14 @@ def main(argv: list[str] | None = None) -> int:
     p_conf.add_argument("--reason", default="")
     p_rev = sub.add_parser("review", help="P3：查看人工复核队列")
     p_rev.add_argument("--limit", type=int, default=50)
+    p_ask = sub.add_parser("ask", help="P4：统一查询 + 带引用答案")
+    p_ask.add_argument("query")
+    p_ask.add_argument("--domain")
+    p_ask.add_argument("--limit", type=int, default=10)
+    p_ask.add_argument("--since")
+    p_ask.add_argument("--until")
+    p_ask.add_argument("--status", help="事实状态过滤：verified/single-source/conflicting/stale")
+    sub.add_parser("eval4", help="P4：Recall@K / nDCG@K / 引用正确率评测")
 
     args = parser.parse_args(argv)
     config = load_config()
@@ -154,6 +164,31 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "review":
         print(json.dumps(store.list_reviews(limit=args.limit), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "ask":
+        coordinator = QueryCoordinator(store, config)
+        filters: dict = {}
+        if args.domain:
+            filters["domain_id"] = args.domain
+        if args.since:
+            filters["since"] = args.since
+        if args.until:
+            filters["until"] = args.until
+        if args.status:
+            filters["verification_status"] = args.status
+        started = time.perf_counter()
+        result = coordinator.search(args.query, filters=filters, limit=args.limit)
+        latency = int((time.perf_counter() - started) * 1000)
+        coordinator.log(args.query, result, latency)
+        if result["citations_valid"] is False:
+            print("警告：引用完整性检查失败（存在缺 URL 或文档版本的结果）", file=sys.stderr)
+        print(result["answer"])
+        print(f"\n[routed={','.join(result['routed_domains'])} | {latency} ms]")
+        return 0
+
+    if args.command == "eval4":
+        print(json.dumps(evaluate_p4(QueryCoordinator(store, config)), ensure_ascii=False, indent=2))
         return 0
 
     return 1
