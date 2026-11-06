@@ -10,10 +10,25 @@ from ..indexing import build_search_port
 
 
 class QueryCoordinator:
+    RRF_K = 60  # Reciprocal Rank Fusion 平滑常数
+
     def __init__(self, store, config: dict) -> None:
         self.store = store
         self.config = config
         self.port = build_search_port(config, store)
+        self.extra_ports = self._build_extra_ports(config, store)
+
+    @staticmethod
+    def _build_extra_ports(config: dict, store) -> list:
+        """hybrid 模式：主引擎（Tantivy 分词）之外补 FTS5 trigram 做 RRF 融合。"""
+        mode = str(config.get("search_engine", "fts5"))
+        if mode != "hybrid":
+            return []
+        try:
+            from ..indexing.fts5_port import Fts5SearchPort
+            return [Fts5SearchPort(store)]
+        except Exception:
+            return []
 
     # ---------- 域路由 ----------
     def route(self, query: str, filters: dict | None = None) -> list[str]:
@@ -38,23 +53,43 @@ class QueryCoordinator:
         # 多召回：原始查询 + 去尾缀变体，缓解「中标公告」只匹配「招标公告」的片段偏差
         variants = [query] + [v for v in [self._strip_generic_suffix(query)] if v and v != query]
         raw: list[dict] = []
+        rank_lists: list[tuple[list[str], float]] = []
+
+        def collect(port, variant: str, domain_id: str, weight: float = 1.0) -> None:
+            # 内部用更大候选池，避免融合前就把尾部相关内容截掉；最终仍按 limit 返回
+            pool = max(limit * 3, 20)
+            try:
+                hits = port.search(variant, filters={**filters, "domain_id": domain_id}, limit=pool)
+            except Exception:
+                return
+            for rank, hit in enumerate(hits):
+                seen = {r.get("doc_id") for r in raw}
+                if hit.get("doc_id") in seen:
+                    continue
+                item = dict(hit)
+                item["domain_id"] = domain_id
+                # 域内归一化：不同域 BM25 原始分不可直接比较（V1.1 §12.3）
+                item["rank_normalized"] = round(1.0 - rank / max(1, len(hits)), 4)
+                item["raw_score"] = float(item.get("score") or item.get("relevance") or 0.0)
+                raw.append(item)
+            rank_lists.append(([str(h.get("doc_id")) for h in hits], weight))
+
+        # 主引擎权重高于补充引擎：分词引擎（tantivy）精确，trigram（fts5）召回宽但噪声多
         for domain_id in domains:
             for variant in variants:
-                try:
-                    hits = self.port.search(
-                        variant,
-                        filters={**filters, "domain_id": domain_id},
-                        limit=limit,
-                    )
-                    for rank, hit in enumerate(hits):
-                        item = dict(hit)
-                        item["domain_id"] = domain_id
-                        # 域内归一化：不同域 BM25 原始分不可直接比较（V1.1 §12.3）
-                        item["rank_normalized"] = round(1.0 - rank / max(1, len(hits)), 4)
-                        item["raw_score"] = float(item.get("score") or item.get("relevance") or 0.0)
-                        raw.append(item)
-                except Exception:
-                    continue
+                collect(self.port, variant, domain_id, 1.0)
+                for port in self.extra_ports:
+                    collect(port, variant, domain_id, 0.5)
+
+        # 加权 RRF 融合：Σ weight/(k+rank)，归一化到 [0,1]
+        rrf: dict[str, float] = {}
+        for ids, weight in rank_lists:
+            for rank, doc_id in enumerate(ids):
+                rrf[doc_id] = rrf.get(doc_id, 0.0) + weight / (self.RRF_K + rank + 1)
+        if rrf:
+            top = max(rrf.values()) or 1.0
+            for item in raw:
+                item["rrf_score"] = round(rrf.get(str(item.get("doc_id")), 0.0) / top, 4)
 
         # 结构化过滤
         raw = self._apply_filters(raw, filters)
@@ -121,14 +156,39 @@ class QueryCoordinator:
                 recency = min(1.0, len(fetched) / 40.0)  # 有时间戳的轻微加分
             coverage = self._term_coverage(query, row)
             row["term_coverage"] = coverage
+            # 整短语命中：区分「中标公告」与「招标公告」这类共享 2-gram 但语义不同的查询
+            phrase = self._phrase_hit(query, row)
+            row["phrase_hit"] = phrase
+            # 有 RRF 分数时以融合分为主（多引擎共识），否则用单引擎归一化分
+            base = float(row.get("rrf_score") or row.get("rank_normalized") or 0.0)
             row["final_score"] = round(
-                0.45 * float(row.get("rank_normalized") or 0.0)
-                + 0.30 * coverage
-                + 0.15 * min(1.0, authority)
+                0.36 * base
+                + 0.22 * coverage
+                + 0.22 * phrase
+                + 0.10 * min(1.0, authority)
                 + 0.10 * recency,
                 4,
             )
         return sorted(rows, key=lambda r: r["final_score"], reverse=True)
+
+    @staticmethod
+    def _phrase_hit(query: str, row: dict) -> float:
+        """整短语命中：标题命中 1.0，摘要命中 0.6，去尾缀核心词命中 0.4。"""
+        text = query.strip()
+        if not text:
+            return 0.0
+        title = row.get("title") or ""
+        snippet = row.get("snippet") or ""
+        if text in title:
+            return 1.0
+        if text in snippet:
+            return 0.6
+        core = QueryCoordinator._strip_generic_suffix(text)
+        if core and (core in title):
+            return 0.4
+        if core and (core in snippet):
+            return 0.2
+        return 0.0
 
     @staticmethod
     def _strip_generic_suffix(query: str) -> str:

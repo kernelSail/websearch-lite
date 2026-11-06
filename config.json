@@ -2,6 +2,8 @@
   "storage_root": "D:/study/deepseek-work/websearch-lite/shared",
   "temp_root": "D:/study/deepseek-work/websearch-lite/shared/temp",
   "database": "D:/study/deepseek-work/websearch-lite/shared/registry.db",
+  "search_engine": "tantivy",
+  "tantivy_root": "D:/study/deepseek-work/websearch-lite/domains_index",
   "user_agent": "websearch-lite/0.1 (personal self-use; low-rate)",
   "request_timeout_s": 20,
   "max_retries": 2,

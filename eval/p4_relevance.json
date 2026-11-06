@@ -1,6 +1,6 @@
 {
-  "version": "p4v2",
-  "note": "文档级相关性标注（基于真实入库文档）。relevant_doc_ids 为空表示该查询应无命中。",
+  "version": "p4v3",
+  "note": "文档级相关性标注（26 篇真实入库文档，2026-11-06）。relevant_doc_ids 为空表示该查询应无命中。",
   "queries": [
     {
       "id": "p4_01",
@@ -8,7 +8,11 @@
       "k": 5,
       "relevant_doc_ids": [
         "idx_06bc5dae123bb9f6",
+        "idx_365c487fe80bd3ee",
+        "idx_5270b54abfe7e7f5",
+        "idx_c2f187e2c64370a4",
         "idx_cd90fee9c14a1772",
+        "idx_fef4aa2304289611",
         "idx_3f2f91ff21ad23eb"
       ]
     },
@@ -20,7 +24,9 @@
         "idx_06bc5dae123bb9f6",
         "idx_32c2b16918422d79",
         "idx_72daa398cadf006c",
-        "idx_cd90fee9c14a1772"
+        "idx_9259530f6a130c0e",
+        "idx_cd90fee9c14a1772",
+        "idx_de2b3f0b977037e3"
       ]
     },
     {
@@ -39,10 +45,14 @@
       "query": "招标公告",
       "k": 5,
       "relevant_doc_ids": [
+        "idx_1e8d2c8aa6060247",
         "idx_32c2b16918422d79",
         "idx_53f38761ec463cb6",
         "idx_6ebb82aebe985359",
-        "idx_72daa398cadf006c"
+        "idx_72daa398cadf006c",
+        "idx_9259530f6a130c0e",
+        "idx_b0b17d3809c943f1",
+        "idx_de2b3f0b977037e3"
       ]
     },
     {
@@ -58,6 +68,44 @@
     },
     {
       "id": "p4_06",
+      "query": "股份回购",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_3ef212840fd0a994",
+        "idx_7e0b15bdcd20021c",
+        "idx_885963733bc95bb2",
+        "idx_b2aca8a2c7d9d457"
+      ]
+    },
+    {
+      "id": "p4_07",
+      "query": "医疗设备采购",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_06bc5dae123bb9f6",
+        "idx_32c2b16918422d79",
+        "idx_cd90fee9c14a1772",
+        "idx_de2b3f0b977037e3"
+      ]
+    },
+    {
+      "id": "p4_08",
+      "query": "食堂大宗食材",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_c2f187e2c64370a4"
+      ]
+    },
+    {
+      "id": "p4_09",
+      "query": "试验检测设备更新",
+      "k": 5,
+      "relevant_doc_ids": [
+        "idx_fef4aa2304289611"
+      ]
+    },
+    {
+      "id": "p4_10",
       "query": "zzzz-不存在的关键词-xyz",
       "k": 5,
       "relevant_doc_ids": []

@@ -15,6 +15,15 @@ from ..storage.sqlite_store import Store
 ROOT = find_project_root()
 
 
+def _meta_key(url: str) -> str:
+    """URL 元数据匹配键：忽略 scheme/大小写/末尾斜杠差异。"""
+    text = str(url or "").strip().lower()
+    for prefix in ("https://", "http://"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+    return text.rstrip("/")
+
+
 def load_config() -> dict:
     return json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
 
@@ -82,7 +91,8 @@ def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: in
         api_items: dict[str, dict] = {}
         if hasattr(adapter, "discover_api"):
             for item in adapter.discover_api(limit * 2):
-                api_items[item["url"]] = item
+                # 按规范化 key 存元数据：API 返回 .pdf、站点链接可能 .PDF，大小写不一致
+                api_items[_meta_key(item["url"])] = item
                 if store.enqueue_url(source_id, item["url"], canonicalize_url(item["url"])):
                     discovered += 1
         for seed in discovery.get("seed_urls", []):
@@ -130,7 +140,17 @@ def crawl(config: dict, domains: dict[str, dict], store: Store, *, max_pages: in
                 continue
 
             # 短期正文缓存：抽取前写入 temp，入库后即删
-            api_meta = api_items.get(url)
+            api_meta = api_items.get(_meta_key(url))
+            is_pdf_binary = result.body[:5] == b"%PDF-"
+            if is_pdf_binary and not api_meta:
+                # PDF 二进制且无 API 元数据（典型：上一轮发现、本轮未在 API 结果里的老任务）
+                # 绝不把 PDF 字节当正文入库，明确标记为不可处理
+                store.finish_crawl(task["crawl_task_id"], "succeeded", http_status=result.status_code,
+                                   etag=result.headers.get("etag"),
+                                   last_modified=result.headers.get("last-modified"),
+                                   error="PDF_WITHOUT_METADATA")
+                counters["skipped_pdf"] = counters.get("skipped_pdf", 0) + 1
+                continue
             if api_meta and api_meta.get("pdf"):
                 # PDF 公告不下载二进制（P0 只存索引与元数据）；从 API 元数据构造可检索文本
                 raw = ""

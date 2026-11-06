@@ -120,24 +120,40 @@ class TantivySearchPort:
         filters = filters or {}
         domain_ids = [filters["domain_id"]] if filters.get("domain_id") else list(self.domains)
         tokens = [t for t in tokenize(query).split() if t]
-        # 默认 parse_query 是 AND；中文分词后多词需显式 OR，否则「中标公告」互相抵消
-        query_text = " OR ".join(tokens) if tokens else query
+        if not tokens:
+            tokens = [query]
+        # AND 优先保证精确（「中标公告」要求同时含 中标+公告），召回不足时退化为 OR。
+        strategies = [" AND ".join(tokens), " OR ".join(tokens)]
         hits: list[dict] = []
         for domain_id in domain_ids:
             entry = self._domain_index(domain_id)
             try:
                 entry["index"].reload()
                 searcher = entry["index"].searcher()
-                parsed = entry["index"].parse_query(query_text, ["title", "snippet", "entities"])
-                for score, address in searcher.search(parsed, limit=limit).hits:
+            except Exception:
+                continue
+            for query_text in strategies:
+                try:
+                    parsed = entry["index"].parse_query(query_text, ["title", "snippet", "entities"])
+                    found = searcher.search(parsed, limit=limit).hits
+                except Exception:
+                    found = []
+                if not found:
+                    continue
+                seen_ids = {h.get("doc_id") for h in hits}
+                for score, address in found:
                     doc = searcher.doc(address)
                     raw = doc.to_dict() if hasattr(doc, "to_dict") else dict(doc)
-                    item = {key: (value[0] if isinstance(value, list) and value else value) for key, value in raw.items()}
+                    item = {key: (value[0] if isinstance(value, list) and value else value)
+                            for key, value in raw.items()}
+                    if item.get("doc_id") in seen_ids:
+                        continue
                     item["score"] = float(score)
                     item["domain_id"] = domain_id
                     hits.append(item)
-            except Exception:
-                continue
+                # AND 已有结果即停止，避免 OR 引入「招标公告」这类片段噪声
+                if len(found) >= 1:
+                    break
         # 域内归一化 rank，避免直接比较不同域的原始 BM25 分（V1.1 §12.3）
         by_domain: dict[str, list[dict]] = {}
         for item in hits:
